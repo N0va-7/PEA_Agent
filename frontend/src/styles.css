@@ -626,6 +626,18 @@ button.small {
   color: var(--muted);
 }
 
+.history-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.danger-action {
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+  background: #fff1f2 !important;
+}
+
 .badge {
   font-size: 12px;
   padding: 2px 8px;

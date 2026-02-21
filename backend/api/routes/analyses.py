@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from backend.api.deps import get_container, get_current_user, require_auth
 from backend.container import AppContainer
 from backend.infra.errors import raise_api_error
-from backend.models.tables import AnalysisFeedbackEvent
-from backend.schemas.analysis import AnalysisListResponse, AnalysisResponse
+from backend.models.tables import AnalysisFeedbackEvent, EmailAnalysis
+from backend.schemas.analysis import AnalysisDeleteResponse, AnalysisListResponse, AnalysisResponse
 from backend.schemas.feedback import FeedbackEventResponse, FeedbackResponse, FeedbackUpsertRequest
 from backend.schemas.jobs import JobCreateResponse
 
@@ -17,6 +18,34 @@ router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Depends(
 MAX_EML_BYTES = 10 * 1024 * 1024
 ALLOWED_SORT_FIELDS = {"created_at", "sender", "subject"}
 ALLOWED_SORT_ORDER = {"asc", "desc"}
+
+
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _cleanup_report_file(raw_path: str | None, report_root: Path):
+    if not raw_path:
+        return
+    try:
+        path = Path(raw_path).expanduser().resolve(strict=False)
+    except Exception:
+        return
+    candidates = []
+    if _is_within_root(path, report_root):
+        candidates.append(path)
+    candidates.append(report_root / path.name)
+    for target in candidates:
+        try:
+            if target.exists() and target.is_file() and _is_within_root(target.resolve(), report_root):
+                target.unlink(missing_ok=True)
+                break
+        except Exception:
+            continue
 
 
 
@@ -141,6 +170,52 @@ def list_analyses(
         limit=effective_limit,
         offset=effective_offset,
     )
+
+
+@router.delete("/{analysis_id}", response_model=AnalysisDeleteResponse)
+def delete_analysis(
+    analysis_id: str,
+    container: AppContainer = Depends(get_container),
+):
+    report_root = container.settings.report_output_dir.resolve()
+    report_path: str | None = None
+    with container.analysis_service.session_factory() as db:
+        analysis = container.analysis_service.analysis_repo.get_by_id(db, analysis_id)
+        if not analysis:
+            raise_api_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="analysis_not_found",
+                message="Analysis not found",
+            )
+        report_path = analysis.report_path
+        db.execute(delete(AnalysisFeedbackEvent).where(AnalysisFeedbackEvent.analysis_id == analysis_id))
+        db.delete(analysis)
+        db.commit()
+
+    _cleanup_report_file(report_path, report_root)
+    return AnalysisDeleteResponse(deleted_count=1)
+
+
+@router.delete("", response_model=AnalysisDeleteResponse)
+def clear_analyses(
+    container: AppContainer = Depends(get_container),
+):
+    report_root = container.settings.report_output_dir.resolve()
+    report_paths: list[str] = []
+    with container.analysis_service.session_factory() as db:
+        report_paths = [
+            row[0]
+            for row in db.execute(select(EmailAnalysis.report_path)).all()
+            if row and row[0]
+        ]
+        deleted_count = len(report_paths)
+        db.execute(delete(AnalysisFeedbackEvent))
+        db.execute(delete(EmailAnalysis))
+        db.commit()
+
+    for report_path in report_paths:
+        _cleanup_report_file(report_path, report_root)
+    return AnalysisDeleteResponse(deleted_count=deleted_count)
 
 
 @router.post("/{analysis_id}/feedback", response_model=FeedbackResponse)

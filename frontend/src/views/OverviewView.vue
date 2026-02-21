@@ -15,6 +15,7 @@ const stats = ref({
   latestAt: '',
 })
 const recentItems = ref([])
+const runtimeInfo = ref(null)
 
 const riskSummary = computed(() => {
   const malicious = Number(stats.value.malicious || 0)
@@ -87,14 +88,28 @@ async function loadOverview() {
   loading.value = true
   errorText.value = ''
   try {
-    const response = await apiFetch('/api/v1/analyses?page=1&page_size=20&sort_by=created_at&sort_order=desc')
-    const payload = await response.json()
+    const [analysesRes, runtimeRes] = await Promise.allSettled([
+      apiFetch('/api/v1/analyses?page=1&page_size=20&sort_by=created_at&sort_order=desc'),
+      apiFetch('/api/v1/system/runtime-info'),
+    ])
+
+    if (analysesRes.status !== 'fulfilled') {
+      throw analysesRes.reason
+    }
+
+    const payload = await analysesRes.value.json()
     const rows = payload.items || []
     recentItems.value = rows.slice(0, 5)
     stats.value.total = Number(payload.total || rows.length || 0)
     stats.value.malicious = rows.filter((row) => row?.final_decision?.is_malicious === true).length
     stats.value.normal = rows.filter((row) => row?.final_decision?.is_malicious === false).length
     stats.value.latestAt = rows[0]?.created_at || ''
+
+    if (runtimeRes.status === 'fulfilled') {
+      runtimeInfo.value = await runtimeRes.value.json()
+    } else {
+      runtimeInfo.value = null
+    }
   } catch (error) {
     errorText.value = `读取概览失败: ${error.message}`
     if (isAuthError(error)) {
@@ -184,6 +199,39 @@ onMounted(loadOverview)
           <p class="hint" v-else>数据不足，暂无趋势图</p>
         </div>
       </div>
+
+      <h4>后端连接信息（脱敏）</h4>
+      <div class="meta-grid" v-if="runtimeInfo">
+        <div>
+          <label>数据库驱动</label>
+          <p>{{ runtimeInfo.database?.driver || '--' }}</p>
+        </div>
+        <div>
+          <label>数据库地址</label>
+          <p>{{ runtimeInfo.database?.display || '--' }}</p>
+        </div>
+        <div>
+          <label>数据库账号</label>
+          <p>{{ runtimeInfo.database?.username || '--' }}</p>
+        </div>
+        <div>
+          <label>数据库密码</label>
+          <p>{{ runtimeInfo.database?.has_password ? '已配置（隐藏）' : '未配置' }}</p>
+        </div>
+        <div>
+          <label>任务队列</label>
+          <p>{{ runtimeInfo.queue?.backend || '--' }}</p>
+        </div>
+        <div>
+          <label>Redis 地址</label>
+          <p>{{ runtimeInfo.queue?.display || '--' }}</p>
+        </div>
+        <div>
+          <label>Redis 密码</label>
+          <p>{{ runtimeInfo.queue?.has_password ? '已配置（隐藏）' : '未配置' }}</p>
+        </div>
+      </div>
+      <p v-else-if="!loading" class="hint">后端连接信息读取失败或不可用</p>
 
       <h4>最近记录</h4>
       <ul class="recent-list" v-if="recentItems.length">

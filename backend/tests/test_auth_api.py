@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 
 def test_login_success_and_failure(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./runtime/db/test_auth_api_1.db")
     monkeypatch.setenv("AUTH_USERNAME", "admin")
     monkeypatch.setenv("AUTH_PASSWORD_HASH", "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")
     monkeypatch.setenv("LLM_API_KEY", "dummy-key")
@@ -27,6 +28,7 @@ def test_login_success_and_failure(monkeypatch):
 
 
 def test_login_rate_limit(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./runtime/db/test_auth_api_2.db")
     monkeypatch.setenv("AUTH_USERNAME", "admin_rate")
     monkeypatch.setenv("AUTH_PASSWORD_HASH", "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")
     monkeypatch.setenv("LLM_API_KEY", "dummy-key")
@@ -55,6 +57,7 @@ def test_login_rate_limit(monkeypatch):
 def test_login_supports_pbkdf2_hash(monkeypatch):
     from backend.infra.security import hash_password_pbkdf2
 
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./runtime/db/test_auth_api_3.db")
     monkeypatch.setenv("AUTH_USERNAME", "admin_pbkdf2")
     monkeypatch.setenv("AUTH_PASSWORD_HASH", hash_password_pbkdf2("admin123", iterations=1000))
     monkeypatch.setenv("LLM_API_KEY", "dummy-key")

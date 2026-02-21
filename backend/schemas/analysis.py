@@ -34,3 +34,7 @@ class AnalysisListResponse(BaseModel):
     sort_order: str
     limit: int
     offset: int
+
+
+class AnalysisDeleteResponse(BaseModel):
+    deleted_count: int

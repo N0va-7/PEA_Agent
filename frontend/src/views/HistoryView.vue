@@ -21,6 +21,7 @@ const pageSize = ref(10)
 
 const historyLoading = ref(false)
 const historyError = ref('')
+const historyMessage = ref('')
 const historyItems = ref([])
 const total = ref(0)
 
@@ -29,6 +30,7 @@ const detailLoading = ref(false)
 const analysis = ref(null)
 const reportText = ref('')
 const reportName = ref('')
+const reportAvailable = ref(false)
 const activeTab = ref('overview')
 const feedbackLabel = ref('')
 const feedbackNote = ref('')
@@ -160,23 +162,39 @@ async function openAnalysis(analysisId, { updateRoute = true } = {}) {
   selectedAnalysisId.value = analysisId
   feedbackMessage.value = ''
   feedbackError.value = ''
+  historyError.value = ''
   detailLoading.value = true
   feedbackHistoryLoading.value = true
+  reportText.value = ''
+  reportName.value = ''
+  reportAvailable.value = false
   try {
     if (updateRoute && route.params.analysisId !== analysisId) {
       await router.push(`/app/history/${analysisId}`)
     }
-    const [analysisPayload, reportPayload, feedbackEvents] = await Promise.all([
+    const [analysisResult, reportResult, feedbackResult] = await Promise.allSettled([
       getAnalysis(analysisId),
       getReport(analysisId),
       getFeedbackHistory(analysisId),
     ])
+    if (analysisResult.status !== 'fulfilled') {
+      throw analysisResult.reason
+    }
+    const analysisPayload = analysisResult.value
     analysis.value = analysisPayload
-    reportText.value = reportPayload.text
-    reportName.value = reportPayload.filename
+    if (reportResult.status === 'fulfilled') {
+      reportText.value = reportResult.value.text
+      reportName.value = reportResult.value.filename
+      reportAvailable.value = true
+    } else {
+      reportText.value = '> 报告暂不可用，请检查报告路径或重新生成分析。'
+      reportName.value = ''
+      reportAvailable.value = false
+    }
     feedbackLabel.value = analysisPayload.review_label || ''
     feedbackNote.value = analysisPayload.review_note || ''
-    feedbackHistory.value = Array.isArray(feedbackEvents) ? feedbackEvents : []
+    feedbackHistory.value =
+      feedbackResult.status === 'fulfilled' && Array.isArray(feedbackResult.value) ? feedbackResult.value : []
   } catch (error) {
     historyError.value = `读取分析详情失败: ${error.message}`
     if (isAuthError(error)) {
@@ -186,6 +204,68 @@ async function openAnalysis(analysisId, { updateRoute = true } = {}) {
   } finally {
     detailLoading.value = false
     feedbackHistoryLoading.value = false
+  }
+}
+
+async function deleteAnalysis(analysisId) {
+  if (!analysisId) return
+  historyError.value = ''
+  historyMessage.value = ''
+  if (!window.confirm(`确认删除该记录（${analysisId}）？`)) {
+    return
+  }
+  try {
+    const res = await apiFetch(`/api/v1/analyses/${analysisId}`, { method: 'DELETE' })
+    const payload = await res.json()
+    historyMessage.value = `已删除 ${payload.deleted_count || 0} 条记录。`
+
+    if (selectedAnalysisId.value === analysisId) {
+      selectedAnalysisId.value = ''
+      analysis.value = null
+      reportText.value = ''
+      reportName.value = ''
+      reportAvailable.value = false
+      feedbackHistory.value = []
+      if (route.params.analysisId === analysisId) {
+        await router.push('/app/history')
+      }
+    }
+    await loadHistory()
+  } catch (error) {
+    historyError.value = `删除失败: ${error.message}`
+    if (isAuthError(error)) {
+      clearSession()
+      await router.replace('/login')
+    }
+  }
+}
+
+async function clearAllHistory() {
+  historyError.value = ''
+  historyMessage.value = ''
+  if (!window.confirm('确认清空全部历史记录？该操作不可撤销。')) {
+    return
+  }
+  try {
+    const res = await apiFetch('/api/v1/analyses', { method: 'DELETE' })
+    const payload = await res.json()
+    historyMessage.value = `已清空 ${payload.deleted_count || 0} 条记录。`
+    selectedAnalysisId.value = ''
+    analysis.value = null
+    reportText.value = ''
+    reportName.value = ''
+    reportAvailable.value = false
+    feedbackHistory.value = []
+    if (route.params.analysisId) {
+      await router.push('/app/history')
+    }
+    await loadHistory({ resetPage: true })
+  } catch (error) {
+    historyError.value = `清空失败: ${error.message}`
+    if (isAuthError(error)) {
+      clearSession()
+      await router.replace('/login')
+    }
   }
 }
 
@@ -298,7 +378,10 @@ onMounted(async () => {
       <article class="panel">
         <div class="card-head">
           <h3>筛选与列表</h3>
-          <button class="ghost small" @click="loadHistory()">刷新</button>
+          <div class="filter-actions">
+            <button class="ghost small" @click="loadHistory()">刷新</button>
+            <button class="ghost small" @click="clearAllHistory">清空历史</button>
+          </div>
         </div>
 
         <div class="filters">
@@ -326,12 +409,13 @@ onMounted(async () => {
           </div>
           <div class="filter-actions">
             <button class="ghost small" @click="applyFilters">查询</button>
-            <button class="ghost small" @click="resetFilters">清空</button>
+            <button class="ghost small" @click="resetFilters">重置筛选</button>
           </div>
         </div>
 
         <p v-if="historyLoading" class="hint">历史记录加载中...</p>
         <p v-if="historyError" class="error-text">{{ historyError }}</p>
+        <p v-if="historyMessage" class="success-text">{{ historyMessage }}</p>
 
         <ul v-if="historyItems.length" class="history-list">
           <li
@@ -351,6 +435,9 @@ onMounted(async () => {
               <span>{{ truncate(item.sender, 24) }}</span>
               <span>{{ formatDate(item.created_at) }}</span>
             </div>
+            <div class="history-actions">
+              <button class="ghost small danger-action" @click.stop="deleteAnalysis(item.id)">删除</button>
+            </div>
           </li>
         </ul>
         <p v-else-if="!historyLoading" class="hint">暂无历史记录</p>
@@ -367,7 +454,7 @@ onMounted(async () => {
       <article class="panel">
         <div class="card-head">
           <h3>分析详情</h3>
-          <button class="ghost small" :disabled="!reportText" @click="downloadReport">下载报告</button>
+          <button class="ghost small" :disabled="!reportAvailable" @click="downloadReport">下载报告</button>
         </div>
         <div class="tabs">
           <button class="ghost small" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">概览</button>

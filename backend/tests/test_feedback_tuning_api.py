@@ -8,13 +8,15 @@ from backend.models.tables import SystemConfig
 
 
 def _set_env(monkeypatch, tmp_path, *, min_total=500, min_class=100, recent_days=7):
+    sqlite_path = tmp_path / "analysis.db"
     monkeypatch.setenv("AUTH_USERNAME", "admin")
     monkeypatch.setenv("AUTH_PASSWORD_HASH", "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")
     monkeypatch.setenv("LLM_API_KEY", "dummy-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("LLM_MODEL_ID", "gpt-4o-mini")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key")
-    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "analysis.db"))
+    monkeypatch.setenv("SQLITE_DB_PATH", str(sqlite_path))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sqlite_path}")
     monkeypatch.setenv("REPORT_OUTPUT_DIR", str(tmp_path / "reports"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("MODEL_DIR", str(tmp_path / "artifacts"))
