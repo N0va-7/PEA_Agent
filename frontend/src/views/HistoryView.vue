@@ -8,7 +8,13 @@ import { clearSession } from '../session'
 
 const route = useRoute()
 const router = useRouter()
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+  typographer: true,
+})
+md.enable(['table', 'strikethrough'])
 
 const senderFilter = ref('')
 const subjectFilter = ref('')
@@ -44,7 +50,28 @@ const finalDecision = computed(() => analysis.value?.final_decision || {})
 const bodyProb = computed(() => Number(analysis.value?.body_analysis?.phishing_probability || 0))
 const urlProb = computed(() => Number(analysis.value?.url_analysis?.max_possibility || 0))
 const attachThreat = computed(() => analysis.value?.attachment_analysis?.threat_level || 'unknown')
-const reportHtml = computed(() => md.render(reportText.value || ''))
+function normalizeMarkdown(raw) {
+  let text = String(raw || '').replace(/\r\n?/g, '\n').trim()
+  if (!text) return ''
+
+  // Auto-close unmatched fenced code block to avoid markdown parser drift.
+  const fenceMatches = text.match(/(^|\n)```/g)
+  if ((fenceMatches?.length || 0) % 2 === 1) {
+    text += '\n```'
+  }
+  return text
+}
+
+const reportHtml = computed(() => {
+  const normalized = normalizeMarkdown(reportText.value)
+  if (!normalized) return ''
+  try {
+    return md.render(normalized)
+  } catch {
+    const escaped = md.utils.escapeHtml(normalized)
+    return `<pre>${escaped}</pre>`
+  }
+})
 const pageCount = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize.value)))
 
 function formatDate(value) {
