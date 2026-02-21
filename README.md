@@ -35,17 +35,22 @@ cp backend/.env.example backend/.env
 
 ```env
 # Storage
+DATABASE_URL=""
 SQLITE_DB_PATH="/Users/qwx/dev/code/PEA_Agent/runtime/db/analysis.db"
 REPORT_OUTPUT_DIR="/Users/qwx/dev/code/PEA_Agent/runtime/reports"
 UPLOAD_DIR="/Users/qwx/dev/code/PEA_Agent/runtime/uploads"
 MODEL_DIR="/Users/qwx/dev/code/PEA_Agent/ml/artifacts"
+UPLOAD_RETENTION_HOURS="72"
 
 # Auth / JWT
 AUTH_USERNAME="admin"
-AUTH_PASSWORD_HASH="<sha256(password)>"
+AUTH_PASSWORD_HASH="<sha256(password) or pbkdf2_sha256$...>"
 JWT_SECRET_KEY="<strong-random-secret>"
 JWT_ALGORITHM="HS256"
 JWT_EXPIRE_HOURS="8"
+LOGIN_RATE_MAX_ATTEMPTS="10"
+LOGIN_RATE_WINDOW_SECONDS="300"
+EXPOSE_INTERNAL_ERROR_DETAILS="false"
 
 # LLM
 LLM_API_KEY=""
@@ -57,6 +62,11 @@ THREATBOOK_API_KEY=""
 
 # CORS
 CORS_ALLOW_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+
+# Queue (optional redis persistence)
+JOB_QUEUE_BACKEND="memory"
+REDIS_URL="redis://127.0.0.1:6379/0"
+REDIS_QUEUE_NAME="pea:jobs"
 ```
 
 ## 3. 启动方式（唯一推荐）
@@ -75,6 +85,20 @@ CORS_ALLOW_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 
 ```bash
 /Users/qwx/dev/code/PEA_Agent/.py311/bin/alembic -c backend/alembic.ini upgrade head
+```
+
+如需切换 MySQL（示例）：
+
+```env
+DATABASE_URL="mysql+pymysql://user:pass@127.0.0.1:3306/pea_agent?charset=utf8mb4"
+```
+
+如需启用 Redis 持久化队列（示例）：
+
+```env
+JOB_QUEUE_BACKEND="redis"
+REDIS_URL="redis://127.0.0.1:6379/0"
+REDIS_QUEUE_NAME="pea:jobs"
 ```
 
 ### 3.2 启动前端

@@ -65,6 +65,10 @@ async function logout() {
             <span class="menu-icon">HS</span>
             <span class="menu-label" v-show="!isCollapsed">历史记录</span>
           </RouterLink>
+          <RouterLink to="/app/tuning" class="menu-item" :title="isCollapsed ? '调参管理' : ''">
+            <span class="menu-icon">TN</span>
+            <span class="menu-label" v-show="!isCollapsed">调参管理</span>
+          </RouterLink>
         </section>
       </nav>
 

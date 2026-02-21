@@ -1,8 +1,9 @@
 import email
 import re
-from pathlib import Path
 from email.header import decode_header
 from email.utils import parseaddr
+from pathlib import Path
+from time import time
 
 from backend.infra.config import Settings
 from backend.workflow.state import EmailAnalysisState
@@ -40,12 +41,31 @@ def _get_body(msg):
     return ""
 
 
+def _cleanup_old_uploads(upload_dir: Path, retention_hours: int, max_delete: int = 100):
+    cutoff = time() - max(1, retention_hours) * 3600
+    deleted = 0
+    for file_path in upload_dir.iterdir():
+        if deleted >= max_delete:
+            break
+        if not file_path.is_file():
+            continue
+        if file_path.name.startswith(".gitkeep"):
+            continue
+        try:
+            if file_path.stat().st_mtime < cutoff:
+                file_path.unlink(missing_ok=True)
+                deleted += 1
+        except Exception:
+            continue
+
+
 
 def make_parse_eml_node(settings: Settings):
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     def parse_eml_file(state: EmailAnalysisState):
+        _cleanup_old_uploads(upload_dir, settings.upload_retention_hours)
         if not state.get("raw_eml_content"):
             return {
                 "execution_trace": state["execution_trace"] + ["parse_eml_error"],

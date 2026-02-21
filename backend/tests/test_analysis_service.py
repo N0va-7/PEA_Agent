@@ -23,6 +23,7 @@ class StreamingGraph:
 
 def _build_settings(tmp_path):
     return Settings(
+        database_url=f"sqlite:///{tmp_path / 'analysis.db'}",
         sqlite_db_path=tmp_path / "analysis.db",
         report_output_dir=tmp_path / "reports",
         upload_dir=tmp_path / "uploads",
@@ -37,6 +38,16 @@ def _build_settings(tmp_path):
         cors_allow_origins=["http://localhost:5173"],
         auth_username="admin",
         auth_password_hash="x",
+        tuning_min_total_samples=500,
+        tuning_min_class_samples=100,
+        tuning_recent_days=7,
+        job_queue_backend="memory",
+        redis_url="",
+        redis_queue_name="pea:jobs",
+        upload_retention_hours=72,
+        login_rate_max_attempts=10,
+        login_rate_window_seconds=300,
+        expose_internal_error_details=False,
     )
 
 

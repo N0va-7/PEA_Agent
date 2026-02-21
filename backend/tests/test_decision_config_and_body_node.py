@@ -1,5 +1,8 @@
 import json
+from datetime import datetime, timezone
 
+from backend.infra.db import create_engine_and_session, init_db
+from backend.models.tables import FusionTuningRun, SystemConfig
 from backend.workflow.nodes.analysis import make_analysis_node
 from backend.workflow.nodes.body_reputation import make_body_reputation_node
 
@@ -73,3 +76,45 @@ def test_analysis_node_reads_retrain_and_fusion_artifacts(tmp_path):
     assert result["final_decision"]["is_malicious"] is True
     assert "retrain_report_20990101_000000.json" in result["final_decision"]["config_source"]
     assert "fusion_tuning_latest.json" in result["final_decision"]["config_source"]
+
+
+def test_analysis_node_prefers_active_tuning_run_from_db(tmp_path):
+    engine, session_factory = create_engine_and_session(tmp_path / "analysis.db")
+    init_db(engine)
+    active_json = tmp_path / "fusion_tuning_active.json"
+    active_json.write_text(
+        json.dumps(
+            {
+                "best": {
+                    "w_url_base": 1.0,
+                    "w_text_base": 0.0,
+                    "threshold": 0.95,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with session_factory() as db:
+        run = FusionTuningRun(
+            id="run-1",
+            status="succeeded",
+            triggered_by="admin",
+            triggered_at=datetime.now(timezone.utc),
+            result_json_path=str(active_json),
+            is_active=True,
+        )
+        db.add(run)
+        db.add(SystemConfig(key="active_fusion_tuning_run_id", value="run-1"))
+        db.commit()
+
+    node = make_analysis_node(tmp_path, session_factory=session_factory)
+    state = _base_state()
+    state["urls"] = ["a.test"]
+    state["url_analysis"] = {"max_possibility": 0.96}
+    state["body_analysis"] = {"phishing_probability": 0.2}
+
+    result = node(state)
+
+    assert result["final_decision"]["is_malicious"] is True
+    assert "fusion_tuning_active.json" in result["final_decision"]["config_source"]

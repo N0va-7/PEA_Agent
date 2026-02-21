@@ -18,6 +18,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _normalize_llm_base_url(url: str) -> str:
     stripped = (url or "").strip().rstrip("/")
     # Users often provide full endpoint URLs; ChatOpenAI expects a base URL.
@@ -35,8 +42,18 @@ def _parse_csv_list(raw: str | None, default: list[str]) -> list[str]:
     return values or default
 
 
+def _normalize_database_url(url: str | None, sqlite_db_path: Path) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return f"sqlite:///{sqlite_db_path}"
+    if raw.startswith("mysql://"):
+        return "mysql+pymysql://" + raw[len("mysql://") :]
+    return raw
+
+
 @dataclass(frozen=True)
 class Settings:
+    database_url: str
     sqlite_db_path: Path
     report_output_dir: Path
     upload_dir: Path
@@ -56,6 +73,16 @@ class Settings:
 
     auth_username: str
     auth_password_hash: str
+    tuning_min_total_samples: int
+    tuning_min_class_samples: int
+    tuning_recent_days: int
+    job_queue_backend: str
+    redis_url: str
+    redis_queue_name: str
+    upload_retention_hours: int
+    login_rate_max_attempts: int
+    login_rate_window_seconds: int
+    expose_internal_error_details: bool
 
 
 
@@ -64,8 +91,10 @@ def load_settings() -> Settings:
     report_output_dir = Path(os.getenv("REPORT_OUTPUT_DIR", str(DEFAULT_RUNTIME_DIR / "reports"))).expanduser()
     upload_dir = Path(os.getenv("UPLOAD_DIR", str(DEFAULT_RUNTIME_DIR / "uploads"))).expanduser()
     model_dir = Path(os.getenv("MODEL_DIR", str(DEFAULT_MODEL_DIR))).expanduser()
+    database_url = _normalize_database_url(os.getenv("DATABASE_URL"), sqlite_db_path)
 
     return Settings(
+        database_url=database_url,
         sqlite_db_path=sqlite_db_path,
         report_output_dir=report_output_dir,
         upload_dir=upload_dir,
@@ -83,4 +112,14 @@ def load_settings() -> Settings:
         ),
         auth_username=os.getenv("AUTH_USERNAME", "admin"),
         auth_password_hash=os.getenv("AUTH_PASSWORD_HASH", ""),
+        tuning_min_total_samples=_int_env("TUNING_MIN_TOTAL_SAMPLES", 500),
+        tuning_min_class_samples=_int_env("TUNING_MIN_CLASS_SAMPLES", 100),
+        tuning_recent_days=_int_env("TUNING_RECENT_DAYS", 7),
+        job_queue_backend=(os.getenv("JOB_QUEUE_BACKEND", "memory").strip().lower() or "memory"),
+        redis_url=(os.getenv("REDIS_URL", "").strip()),
+        redis_queue_name=(os.getenv("REDIS_QUEUE_NAME", "pea:jobs").strip() or "pea:jobs"),
+        upload_retention_hours=max(1, _int_env("UPLOAD_RETENTION_HOURS", 72)),
+        login_rate_max_attempts=max(1, _int_env("LOGIN_RATE_MAX_ATTEMPTS", 10)),
+        login_rate_window_seconds=max(10, _int_env("LOGIN_RATE_WINDOW_SECONDS", 300)),
+        expose_internal_error_details=_bool_env("EXPOSE_INTERNAL_ERROR_DETAILS", False),
     )

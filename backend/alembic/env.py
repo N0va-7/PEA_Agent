@@ -10,7 +10,7 @@ from backend.models import tables  # noqa: F401
 
 config = context.config
 settings = load_settings()
-config.set_main_option("sqlalchemy.url", f"sqlite:///{settings.sqlite_db_path}")
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

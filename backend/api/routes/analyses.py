@@ -1,11 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from sqlalchemy import select
 
-from backend.api.deps import get_container, require_auth
+from backend.api.deps import get_container, get_current_user, require_auth
 from backend.container import AppContainer
 from backend.infra.errors import raise_api_error
+from backend.models.tables import AnalysisFeedbackEvent
 from backend.schemas.analysis import AnalysisListResponse, AnalysisResponse
+from backend.schemas.feedback import FeedbackEventResponse, FeedbackResponse, FeedbackUpsertRequest
 from backend.schemas.jobs import JobCreateResponse
 
 
@@ -31,6 +35,10 @@ def _to_analysis_response(obj) -> AnalysisResponse:
         llm_report=obj.llm_report,
         report_path=obj.report_path,
         execution_trace=obj.execution_trace,
+        review_label=obj.review_label,
+        review_note=obj.review_note,
+        reviewed_by=obj.reviewed_by,
+        reviewed_at=obj.reviewed_at,
         created_at=obj.created_at,
     )
 
@@ -133,3 +141,83 @@ def list_analyses(
         limit=effective_limit,
         offset=effective_offset,
     )
+
+
+@router.post("/{analysis_id}/feedback", response_model=FeedbackResponse)
+def upsert_feedback(
+    analysis_id: str,
+    payload: FeedbackUpsertRequest,
+    container: AppContainer = Depends(get_container),
+    current_user: str = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+    with container.analysis_service.session_factory() as db:
+        analysis = container.analysis_service.analysis_repo.get_by_id(db, analysis_id)
+        if not analysis:
+            raise_api_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="analysis_not_found",
+                message="Analysis not found",
+            )
+
+        event = AnalysisFeedbackEvent(
+            id=str(uuid4()),
+            analysis_id=analysis_id,
+            old_review_label=analysis.review_label,
+            new_review_label=payload.review_label,
+            old_review_note=analysis.review_note,
+            new_review_note=payload.review_note,
+            changed_by=current_user,
+            changed_at=now,
+        )
+        analysis.review_label = payload.review_label
+        analysis.review_note = payload.review_note
+        analysis.reviewed_by = current_user
+        analysis.reviewed_at = now
+        db.add(event)
+        db.commit()
+        db.refresh(analysis)
+
+    return FeedbackResponse(
+        analysis_id=analysis_id,
+        review_label=analysis.review_label or payload.review_label,
+        review_note=analysis.review_note,
+        reviewed_by=analysis.reviewed_by or current_user,
+        reviewed_at=analysis.reviewed_at or now,
+    )
+
+
+@router.get("/{analysis_id}/feedback-history", response_model=list[FeedbackEventResponse])
+def get_feedback_history(
+    analysis_id: str,
+    container: AppContainer = Depends(get_container),
+):
+    with container.analysis_service.session_factory() as db:
+        analysis = container.analysis_service.analysis_repo.get_by_id(db, analysis_id)
+        if not analysis:
+            raise_api_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="analysis_not_found",
+                message="Analysis not found",
+            )
+
+        stmt = (
+            select(AnalysisFeedbackEvent)
+            .where(AnalysisFeedbackEvent.analysis_id == analysis_id)
+            .order_by(AnalysisFeedbackEvent.changed_at.desc())
+        )
+        rows = list(db.execute(stmt).scalars().all())
+
+    return [
+        FeedbackEventResponse(
+            id=row.id,
+            analysis_id=row.analysis_id,
+            old_review_label=row.old_review_label,
+            new_review_label=row.new_review_label,
+            old_review_note=row.old_review_note,
+            new_review_note=row.new_review_note,
+            changed_by=row.changed_by,
+            changed_at=row.changed_at,
+        )
+        for row in rows
+    ]

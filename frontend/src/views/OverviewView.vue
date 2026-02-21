@@ -125,6 +125,10 @@ onMounted(loadOverview)
         <h3>历史记录</h3>
         <p>检索历史分析、查看报告和原始数据</p>
       </RouterLink>
+      <RouterLink to="/app/tuning" class="nav-card">
+        <h3>调参管理</h3>
+        <p>基于人工反馈手动运行融合调参并启用参数版本</p>
+      </RouterLink>
     </div>
 
     <article class="panel">

@@ -41,7 +41,7 @@ def create_email_analysis_workflow(
     workflow.add_node("analyze_attachment_reputation", make_attachment_reputation_node(settings.threatbook_api_key))
     workflow.add_node("analyze_body_reputation", make_body_reputation_node(settings.model_dir))
     workflow.add_node("analyze_url_reputation", make_url_reputation_node(settings.model_dir))
-    workflow.add_node("analyze_email_data", make_analysis_node(settings.model_dir))
+    workflow.add_node("analyze_email_data", make_analysis_node(settings.model_dir, session_factory=session_factory))
     workflow.add_node("llm_report", make_llm_report_node(llm))
     workflow.add_node("persist_analysis", make_persist_analysis_node(analysis_repo, session_factory, report_store))
 

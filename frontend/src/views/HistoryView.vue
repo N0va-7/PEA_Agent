@@ -30,6 +30,13 @@ const analysis = ref(null)
 const reportText = ref('')
 const reportName = ref('')
 const activeTab = ref('overview')
+const feedbackLabel = ref('')
+const feedbackNote = ref('')
+const feedbackSaving = ref(false)
+const feedbackHistoryLoading = ref(false)
+const feedbackHistory = ref([])
+const feedbackMessage = ref('')
+const feedbackError = ref('')
 
 const finalDecision = computed(() => analysis.value?.final_decision || {})
 const bodyProb = computed(() => Number(analysis.value?.body_analysis?.phishing_probability || 0))
@@ -56,6 +63,20 @@ function getVerdictClass(item) {
   const flag = item?.final_decision?.is_malicious
   if (flag === true) return 'danger'
   if (flag === false) return 'safe'
+  return 'neutral'
+}
+
+function getReviewLabel(item) {
+  const label = item?.review_label
+  if (label === 'malicious') return '已标恶意'
+  if (label === 'benign') return '已标正常'
+  return '未反馈'
+}
+
+function getReviewLabelClass(item) {
+  const label = item?.review_label
+  if (label === 'malicious') return 'danger'
+  if (label === 'benign') return 'safe'
   return 'neutral'
 }
 
@@ -129,18 +150,33 @@ async function getReport(analysisId) {
   return { text, filename }
 }
 
+async function getFeedbackHistory(analysisId) {
+  const response = await apiFetch(`/api/v1/analyses/${analysisId}/feedback-history`)
+  return await response.json()
+}
+
 async function openAnalysis(analysisId, { updateRoute = true } = {}) {
   if (!analysisId) return
   selectedAnalysisId.value = analysisId
+  feedbackMessage.value = ''
+  feedbackError.value = ''
   detailLoading.value = true
+  feedbackHistoryLoading.value = true
   try {
     if (updateRoute && route.params.analysisId !== analysisId) {
       await router.push(`/app/history/${analysisId}`)
     }
-    const [analysisPayload, reportPayload] = await Promise.all([getAnalysis(analysisId), getReport(analysisId)])
+    const [analysisPayload, reportPayload, feedbackEvents] = await Promise.all([
+      getAnalysis(analysisId),
+      getReport(analysisId),
+      getFeedbackHistory(analysisId),
+    ])
     analysis.value = analysisPayload
     reportText.value = reportPayload.text
     reportName.value = reportPayload.filename
+    feedbackLabel.value = analysisPayload.review_label || ''
+    feedbackNote.value = analysisPayload.review_note || ''
+    feedbackHistory.value = Array.isArray(feedbackEvents) ? feedbackEvents : []
   } catch (error) {
     historyError.value = `读取分析详情失败: ${error.message}`
     if (isAuthError(error)) {
@@ -149,6 +185,56 @@ async function openAnalysis(analysisId, { updateRoute = true } = {}) {
     }
   } finally {
     detailLoading.value = false
+    feedbackHistoryLoading.value = false
+  }
+}
+
+async function submitFeedback() {
+  if (!analysis.value?.id) return
+  feedbackMessage.value = ''
+  feedbackError.value = ''
+  if (!feedbackLabel.value) {
+    feedbackError.value = '请选择反馈标签后再提交。'
+    return
+  }
+  feedbackSaving.value = true
+  try {
+    const response = await apiFetch(`/api/v1/analyses/${analysis.value.id}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        review_label: feedbackLabel.value,
+        review_note: feedbackNote.value?.trim() || null,
+      }),
+    })
+    const payload = await response.json()
+    analysis.value = {
+      ...analysis.value,
+      review_label: payload.review_label,
+      review_note: payload.review_note,
+      reviewed_by: payload.reviewed_by,
+      reviewed_at: payload.reviewed_at,
+    }
+    feedbackMessage.value = '反馈已保存。'
+    feedbackHistory.value = await getFeedbackHistory(analysis.value.id)
+    const idx = historyItems.value.findIndex((item) => item.id === analysis.value.id)
+    if (idx >= 0) {
+      historyItems.value[idx] = {
+        ...historyItems.value[idx],
+        review_label: payload.review_label,
+        review_note: payload.review_note,
+        reviewed_by: payload.reviewed_by,
+        reviewed_at: payload.reviewed_at,
+      }
+    }
+  } catch (error) {
+    feedbackError.value = `保存反馈失败: ${error.message}`
+    if (isAuthError(error)) {
+      clearSession()
+      await router.replace('/login')
+    }
+  } finally {
+    feedbackSaving.value = false
   }
 }
 
@@ -256,7 +342,10 @@ onMounted(async () => {
           >
             <div class="history-top">
               <strong>{{ truncate(item.subject, 30) }}</strong>
-              <span class="badge" :class="getVerdictClass(item)">{{ getVerdict(item) }}</span>
+              <div class="badge-group">
+                <span class="badge" :class="getReviewLabelClass(item)">{{ getReviewLabel(item) }}</span>
+                <span class="badge" :class="getVerdictClass(item)">{{ getVerdict(item) }}</span>
+              </div>
             </div>
             <div class="history-meta">
               <span>{{ truncate(item.sender, 24) }}</span>
@@ -317,7 +406,44 @@ onMounted(async () => {
               <div><label>收件人</label><p>{{ analysis.recipient || '--' }}</p></div>
               <div><label>主题</label><p>{{ analysis.subject || '--' }}</p></div>
               <div><label>创建时间</label><p>{{ formatDate(analysis.created_at) }}</p></div>
+              <div><label>反馈标签</label><p>{{ getReviewLabel(analysis) }}</p></div>
+              <div><label>反馈人</label><p>{{ analysis.reviewed_by || '--' }}</p></div>
+              <div><label>反馈时间</label><p>{{ formatDate(analysis.reviewed_at) }}</p></div>
             </div>
+
+            <h4>人工反馈</h4>
+            <div class="feedback-editor">
+              <div class="row">
+                <select v-model="feedbackLabel">
+                  <option value="">请选择标签</option>
+                  <option value="malicious">恶意</option>
+                  <option value="benign">正常</option>
+                </select>
+                <button class="ghost small" :disabled="feedbackSaving" @click="submitFeedback">
+                  {{ feedbackSaving ? '保存中...' : '保存反馈' }}
+                </button>
+              </div>
+              <textarea
+                v-model="feedbackNote"
+                rows="3"
+                placeholder="可选：补充判断依据（例如误报原因、业务背景）"
+              />
+              <p v-if="feedbackMessage" class="success-text">{{ feedbackMessage }}</p>
+              <p v-if="feedbackError" class="error-text">{{ feedbackError }}</p>
+            </div>
+
+            <h4>反馈历史</h4>
+            <p v-if="feedbackHistoryLoading" class="hint">反馈历史加载中...</p>
+            <ul v-else-if="feedbackHistory.length" class="timeline feedback-timeline">
+              <li v-for="event in feedbackHistory" :key="event.id">
+                <span>{{ formatDate(event.changed_at) }} / {{ event.changed_by }}</span>
+                <strong>
+                  {{ event.old_review_label || '未标注' }} -> {{ event.new_review_label || '未标注' }}
+                </strong>
+                <p v-if="event.new_review_note">{{ event.new_review_note }}</p>
+              </li>
+            </ul>
+            <p v-else class="hint">暂无反馈历史</p>
 
             <h4>执行轨迹</h4>
             <ul class="timeline" v-if="timelineEvents.length">

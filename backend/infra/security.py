@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Dict
 
@@ -14,15 +15,38 @@ def hash_password_sha256(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+def hash_password_pbkdf2(password: str, *, iterations: int = 260000) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations)
+    return f"pbkdf2_sha256${iterations}${salt}${digest.hex()}"
+
+
+def _verify_password(password: str, expected_hash: str) -> bool:
+    expected = (expected_hash or "").strip()
+    if not expected:
+        return False
+
+    # Backward compatibility for existing deployments.
+    if expected.startswith("pbkdf2_sha256$"):
+        try:
+            _, iter_raw, salt, digest_hex = expected.split("$", 3)
+            iterations = int(iter_raw)
+        except ValueError:
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
+        return hmac.compare_digest(digest.lower(), digest_hex.lower())
+
+    actual = hash_password_sha256(password).lower()
+    return hmac.compare_digest(actual, expected.lower())
+
+
 
 def verify_username_password(username: str, password: str, settings: Settings) -> bool:
     if not hmac.compare_digest(username, settings.auth_username):
         return False
     if not settings.auth_password_hash:
         return False
-    expected = settings.auth_password_hash.lower()
-    actual = hash_password_sha256(password).lower()
-    return hmac.compare_digest(expected, actual)
+    return _verify_password(password, settings.auth_password_hash)
 
 
 

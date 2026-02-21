@@ -18,6 +18,10 @@ class AnalysisResponse(BaseModel):
     llm_report: str | None = None
     report_path: str
     execution_trace: list[Any] | None = None
+    review_label: str | None = None
+    review_note: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
     created_at: datetime
 
 

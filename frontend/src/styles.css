@@ -32,18 +32,24 @@ body {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   color: var(--text);
   background: #fff;
+}
+
+textarea {
+  resize: vertical;
 }
 
 button {
@@ -571,6 +577,10 @@ button.small {
   gap: 8px;
 }
 
+.row.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .history-list {
   list-style: none;
   margin: 12px 0 0;
@@ -598,6 +608,12 @@ button.small {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  align-items: center;
+}
+
+.badge-group {
+  display: flex;
+  gap: 6px;
   align-items: center;
 }
 
@@ -729,6 +745,68 @@ button.small {
 
 .timeline li strong {
   font-size: 13px;
+}
+
+.feedback-editor {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-timeline p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tuning-panel .filters {
+  margin-top: 8px;
+}
+
+.field-label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.precheck-box {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #f5f8fc;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.precheck-box h4 {
+  margin: 0;
+}
+
+.tuning-grid {
+  margin-top: 0;
+}
+
+.blocking-list {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--danger);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+}
+
+.tuning-run-list {
+  max-height: none;
+}
+
+.tuning-meta {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .pagination {
@@ -898,6 +976,10 @@ button.small {
   }
 
   .row {
+    grid-template-columns: 1fr;
+  }
+
+  .row.three {
     grid-template-columns: 1fr;
   }
 

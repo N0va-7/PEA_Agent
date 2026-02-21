@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
+from sqlalchemy import select
+
+from backend.models.tables import FusionTuningRun, SystemConfig
 from backend.workflow.state import EmailAnalysisState
 
 
@@ -44,7 +46,33 @@ def _latest_artifact(model_dir: Path, pattern: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _load_decision_config(model_dir: Path) -> DecisionConfig:
+def _resolve_active_tuning_path(model_dir: Path, session_factory=None) -> Path | None:
+    if session_factory is None:
+        return None
+
+    try:
+        with session_factory() as db:
+            cfg = db.get(SystemConfig, "active_fusion_tuning_run_id")
+            if not cfg or not cfg.value:
+                return None
+            run = db.execute(
+                select(FusionTuningRun)
+                .where(FusionTuningRun.id == cfg.value)
+                .where(FusionTuningRun.status == "succeeded")
+                .limit(1)
+            ).scalar_one_or_none()
+            if not run or not run.result_json_path:
+                return None
+            path = Path(run.result_json_path)
+            if not path.exists():
+                fallback = model_dir / path.name
+                return fallback if fallback.exists() else None
+            return path
+    except Exception:
+        return None
+
+
+def _load_decision_config(model_dir: Path, session_factory=None) -> DecisionConfig:
     cfg = DecisionConfig()
     source_parts: list[str] = []
 
@@ -61,7 +89,9 @@ def _load_decision_config(model_dir: Path) -> DecisionConfig:
         )
         source_parts.append(retrain_report.name)
 
-    fusion_tuning = _latest_artifact(model_dir, "fusion_tuning*.json")
+    fusion_tuning = _resolve_active_tuning_path(model_dir, session_factory=session_factory)
+    if fusion_tuning is None:
+        fusion_tuning = _latest_artifact(model_dir, "fusion_tuning*.json")
     if fusion_tuning:
         payload = _load_json(fusion_tuning)
         best = payload.get("best", {}) if isinstance(payload, dict) else {}
@@ -92,11 +122,6 @@ def _load_decision_config(model_dir: Path) -> DecisionConfig:
     )
 
 
-@lru_cache(maxsize=8)
-def _get_decision_config(model_dir: str) -> DecisionConfig:
-    return _load_decision_config(Path(model_dir))
-
-
 def _predict_phishing(url_prob: float, text_prob: float, cfg: DecisionConfig) -> float:
     c_u = abs(url_prob - 0.5) + 0.5
     c_t = abs(text_prob - 0.5) + 0.5
@@ -109,10 +134,10 @@ def _predict_phishing(url_prob: float, text_prob: float, cfg: DecisionConfig) ->
     return w_u * url_prob + w_t * text_prob
 
 
-def make_analysis_node(model_dir: Path):
-    cfg = _get_decision_config(str(model_dir))
+def make_analysis_node(model_dir: Path, session_factory=None):
 
     def analyze_email_data(state: EmailAnalysisState):
+        cfg = _load_decision_config(model_dir, session_factory=session_factory)
         final_decision = {}
 
         if state.get("attachments"):

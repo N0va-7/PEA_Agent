@@ -42,6 +42,10 @@ class AnalysisRepository:
             llm_report=payload.get("llm_report"),
             report_path=payload["report_path"],
             execution_trace=payload.get("execution_trace"),
+            review_label=payload.get("review_label"),
+            review_note=payload.get("review_note"),
+            reviewed_by=payload.get("reviewed_by"),
+            reviewed_at=payload.get("reviewed_at"),
             created_at=payload.get("created_at", datetime.now(timezone.utc)),
         )
         db.add(obj)
