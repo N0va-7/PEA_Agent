@@ -1,0 +1,86 @@
+{
+  "csv": "/Users/qwx/dev/code/PEA_Agent/ml/artifacts/labeled_email_level_scores_from_text_training.csv",
+  "row_count": 18631,
+  "fpr_target": 0.03,
+  "selection_reason": "Selected from candidates with FPR <= 0.0300",
+  "best": {
+    "w_url_base": 0.1,
+    "w_text_base": 0.9,
+    "threshold": 0.53,
+    "precision": 0.954094,
+    "recall": 0.946915,
+    "f1": 0.950491,
+    "fpr": 0.029412,
+    "tn": 10989,
+    "fp": 333,
+    "fn": 388,
+    "tp": 6921
+  },
+  "top_k": [
+    {
+      "w_url_base": 0.1,
+      "w_text_base": 0.9,
+      "threshold": 0.53,
+      "precision": 0.954094,
+      "recall": 0.946915,
+      "f1": 0.950491,
+      "fpr": 0.029412,
+      "tn": 10989,
+      "fp": 333,
+      "fn": 388,
+      "tp": 6921
+    },
+    {
+      "w_url_base": 0.1,
+      "w_text_base": 0.9,
+      "threshold": 0.52,
+      "precision": 0.953831,
+      "recall": 0.946915,
+      "f1": 0.95036,
+      "fpr": 0.029588,
+      "tn": 10987,
+      "fp": 335,
+      "fn": 388,
+      "tp": 6921
+    },
+    {
+      "w_url_base": 0.1,
+      "w_text_base": 0.9,
+      "threshold": 0.51,
+      "precision": 0.953437,
+      "recall": 0.946915,
+      "f1": 0.950165,
+      "fpr": 0.029853,
+      "tn": 10984,
+      "fp": 338,
+      "fn": 388,
+      "tp": 6921
+    },
+    {
+      "w_url_base": 0.05,
+      "w_text_base": 0.95,
+      "threshold": 0.56,
+      "precision": 0.955267,
+      "recall": 0.946641,
+      "f1": 0.950935,
+      "fpr": 0.028617,
+      "tn": 10998,
+      "fp": 324,
+      "fn": 390,
+      "tp": 6919
+    },
+    {
+      "w_url_base": 0.15,
+      "w_text_base": 0.85,
+      "threshold": 0.52,
+      "precision": 0.953379,
+      "recall": 0.945683,
+      "f1": 0.949516,
+      "fpr": 0.029853,
+      "tn": 10984,
+      "fp": 338,
+      "fn": 397,
+      "tp": 6912
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+
+# Runtime artifacts
+runtime/db/*
+!runtime/db/.gitkeep
+runtime/uploads/*
+!runtime/uploads/.gitkeep
+runtime/reports/*
+!runtime/reports/.gitkeep
+
+# Environment files
+*.env
+.env
+backend/.env
+legacy/agent_archive/.env
+
+# Local Python/Conda environments and caches
+.py311/
+.conda/
+.conda-*/
+.conda-cache/
+.conda-pkgs/
+.conda-envs/
+.anaconda/
+Library/
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+.npm-cache/
