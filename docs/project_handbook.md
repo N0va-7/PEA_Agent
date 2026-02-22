@@ -1,50 +1,69 @@
-# PEA Agent 项目讲解主文档
+# PEA Agent 技术主文档
 
-## 1. 文档定位
+这份文档只回答一个目标：
+把项目现在“真实在跑什么、怎么跑、怎么调”的事实讲清楚。
 
-本主文档用于统一讲清 PEA Agent 的技术实现。  
-阅读目标是让读者快速回答这五个问题：
+## 1. 一分钟结论
 
-1. 项目解决什么问题，核心能力是什么。
-2. 系统架构如何组织，哪些模块负责什么。
-3. 模型除了基础训练，后续调参到底做了什么。
-4. 数据与接口如何落地，如何支撑可追溯运营。
-5. 生产环境为何建议 MySQL + Redis，以及如何稳定运行。
+1. 主流程：`上传邮件 -> 异步任务 -> 多节点分析 -> 融合判定 -> 中文报告 -> 人工反馈 -> 手动调参激活`。
+2. 线上判定不是只靠 LLM，LLM 主要负责把结果写成结构化中文报告。
+3. 模型层分两块：
+   - 基础模型：正文概率、URL 概率。
+   - 融合策略：按权重和阈值做最终判定。
+4. 人工反馈不会自动触发模型重训；它用于融合调参数据集。
+5. 系统支持 MySQL/SQLite 与 Redis/memory 两套运行方式。
 
-## 2. 当前项目结论（先看这个）
+## 2. 你最关心的三个问题
 
-1. 当前项目主流程是：`EML上传 -> 异步分析 -> 融合判定 -> 中文报告 -> 人工反馈 -> 手动调参激活`。
-2. 当前线上模型不是“持续微调大模型”，而是：
-   - 正文模型与 URL 模型做固定推理。
-   - 融合层参数（权重与阈值）通过反馈数据进行受控调优。
-3. 当前部署建议是：
-   - 生产：`MySQL + Redis`
-   - 开发兼容：`SQLite + memory queue`
+### 2.1 `retrain_models.py` 到底有没有在线上自动跑？
 
-## 3. 阅读地图（主文档关联）
+没有。
 
-1. 项目总览与范围：`docs/handbook/00_overview_and_scope.md`
-2. 系统架构与骨架：`docs/handbook/01_system_architecture.md`
-3. 工作流与决策引擎：`docs/handbook/02_workflow_and_decision_engine.md`
-4. 模型训练与反馈调参：`docs/handbook/03_model_training_and_feedback_tuning.md`
-5. 数据模型与 API：`docs/handbook/04_data_schema_and_api_contract.md`
-6. 部署、安全与运维：`docs/handbook/05_deployment_security_observability.md`
+- 后端路由和工作流没有调用它。
+- 它是手动离线脚本，用于重训并导出新的 `.pkl`。
 
-## 4. 关键源码定位
+### 2.2 当前“打标后会触发什么”？
 
-1. 启动与依赖装配：`backend/main.py`
-2. 全局配置：`backend/infra/config.py`
-3. 任务执行器：`backend/services/job_runner.py`
-4. 业务编排服务：`backend/services/analysis_service.py`
-5. 工作流图：`backend/workflow/graph.py`
-6. 决策节点：`backend/workflow/nodes/analysis.py`
-7. 报告节点：`backend/workflow/nodes/llm_report.py`
-8. 调参 API：`backend/api/routes/tuning.py`
-9. 反馈 API：`backend/api/routes/analyses.py`
+打标后会更新 `email_analyses` 的反馈字段，并写一条审计事件。
 
-## 5. 推荐阅读顺序
+只有你在前端点击“运行调参”时，才会：
 
-1. 先读 `00` 与 `01`，明确系统边界和架构分层。
-2. 再读 `02` 与 `03`，理解“判定如何产生”和“参数如何更新”。
-3. 最后读 `04` 与 `05`，掌握接口、表结构、部署与运维落地点。
+1. 读取已打标样本。
+2. 生成 `url_prob,text_prob,label` 数据。
+3. 网格搜索融合参数。
+4. 产出一个调参版本。
 
+### 2.3 当前线上基础模型是哪套算法？
+
+按当前仓库中的产物文件实际加载结果：
+
+1. `phishing_body.pkl`：`TfidfVectorizer + RandomForestClassifier`
+2. `phishing_url.pkl`：`CountVectorizer + LogisticRegression`
+
+## 3. 文档地图
+
+1. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/00_overview_and_scope.md`
+2. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/01_system_architecture.md`
+3. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/02_workflow_and_decision_engine.md`
+4. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/03_model_training_and_feedback_tuning.md`
+5. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/04_data_schema_and_api_contract.md`
+6. `/Users/qwx/dev/code/PEA_Agent/docs/handbook/05_deployment_security_observability.md`
+7. `/Users/qwx/dev/code/PEA_Agent/docs/model_training_handbook.md`
+8. `/Users/qwx/dev/code/PEA_Agent/docs/feedback_tuning_requirements.md`
+
+## 4. 关键源码入口
+
+1. 启动与依赖注入：`/Users/qwx/dev/code/PEA_Agent/backend/main.py`
+2. 配置加载：`/Users/qwx/dev/code/PEA_Agent/backend/infra/config.py`
+3. 工作流图：`/Users/qwx/dev/code/PEA_Agent/backend/workflow/graph.py`
+4. 决策节点：`/Users/qwx/dev/code/PEA_Agent/backend/workflow/nodes/analysis.py`
+5. 报告节点：`/Users/qwx/dev/code/PEA_Agent/backend/workflow/nodes/llm_report.py`
+6. 分析与反馈 API：`/Users/qwx/dev/code/PEA_Agent/backend/api/routes/analyses.py`
+7. 调参 API：`/Users/qwx/dev/code/PEA_Agent/backend/api/routes/tuning.py`
+8. 系统运行信息 API：`/Users/qwx/dev/code/PEA_Agent/backend/api/routes/system.py`
+
+## 5. 建议阅读顺序
+
+1. 先读 `00` 和 `01`，知道边界和架构。
+2. 再读 `02` 和 `03`，理解判定与调参。
+3. 最后读 `04` 和 `05`，掌握数据、接口、部署。

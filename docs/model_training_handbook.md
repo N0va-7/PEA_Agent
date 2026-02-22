@@ -1,114 +1,100 @@
-# 模型训练原理手册（PEA Agent）
+# 模型训练手册（直白版）
 
-配套主文档：
-- `docs/project_handbook.md`
-- `docs/handbook/03_model_training_and_feedback_tuning.md`
+## 1. 先回答你的核心疑问
 
-## 1. 你当前方案是否合理
+### 1.1 `retrain_models.py` 是干嘛的
 
-是合理的。  
-你现在采用“URL 模型 + 正文模型”双模型并行，是邮件钓鱼检测里常见且实用的设计。问题一般不在架构，而在以下三点：
+它是“离线重训工具”。
 
-- 训练集和线上分布不一致（尤其 URL 数据老旧时，误报会高）。
-- 概率分数没有校准，导致 0.8 未必真是“80%风险”。
-- 融合权重与阈值没有在验证集系统搜索。
+它做四件事：
 
-## 2. 训练目标怎么定义
+1. 读两份训练数据 CSV（正文、URL）。
+2. 训练两套模型并导出 `.pkl`。
+3. 在验证集上找阈值。
+4. 输出重训报告 `retrain_report_*.json`。
 
-先明确业务优先级：你现在主要痛点是“误报高”，所以目标应是：
+### 1.2 目前项目有自动用到它吗
 
-1. 在验证集上约束误报率 `FPR <= 目标值`（例如 3%）。
-2. 在满足 FPR 约束的候选中，最大化召回率 `Recall`。
+没有。
 
-如果只追求 Recall，系统会把大量正常邮件打成恶意；  
-如果只追求 Precision，系统会漏掉真实钓鱼邮件。  
-所以要做“约束优化”，而不是单指标优化。
+- 后端代码没有自动调用这个脚本。
+- 只有你手动跑，才会覆盖 `ml/artifacts/*.pkl`。
 
-## 3. 训练与评估流程（标准）
+### 1.3 现在的调参数到底是哪一段在跑
 
-1. 按分层抽样切分：`train/val/test = 70/15/15`。
-2. 分别重训正文和 URL 模型。
-3. 当前版本使用 `log_loss` 模型直接输出概率；如需更强可解释性，可在下一版加入 sigmoid/isotonic 校准。
-4. 在 `val` 上搜索阈值（优先满足 FPR 约束）。
-5. 仅在 `test` 上做一次最终报告，避免数据泄漏。
+是融合调参：
 
-说明：
-- `train`：学习参数。
-- `val`：调阈值/调权重。
-- `test`：只用于最终验收，不能参与调参。
+1. API 收集人工打标样本。
+2. 用 `tune_fusion_threshold.py` 的函数做网格搜索。
+3. 产出 `fusion_tuning_*.json`。
+4. 手动激活后生效。
 
-## 4. 指标原理（最重要）
+## 2. 当前基础模型产物（按文件实测）
 
-二分类混淆矩阵：
+当前 `ml/artifacts` 里的两个文件是：
 
-- `TP`：恶意邮件判恶意
-- `FP`：正常邮件误判恶意
-- `FN`：恶意邮件漏判正常
-- `TN`：正常邮件判正常
+1. `phishing_body.pkl`：`TfidfVectorizer + RandomForestClassifier`
+2. `phishing_url.pkl`：`CountVectorizer + LogisticRegression`
 
-核心指标：
+这和 notebook 内容一致：
 
-- `Precision = TP / (TP + FP)`：告警里有多少是真的
-- `Recall = TP / (TP + FN)`：真实攻击抓住了多少
-- `FPR = FP / (FP + TN)`：正常邮件被误伤比例
-- `F1 = 2PR / (P + R)`：Precision 与 Recall 的平衡
+1. 正文 notebook 包含 `RandomForestClassifier`、`SVC` 方案。
+2. URL notebook 包含 `CountVectorizer + LogisticRegression`、`MultinomialNB` 方案。
 
-你现在要解决的是误报，优先盯 `FPR`。
+## 3. `retrain_models.py` 用了什么技术
 
-## 5. 线上融合公式原理
+它用的是另一套轻量训练管线：
 
-后端当前综合分：
+1. 特征：TF-IDF（正文词 n-gram、URL 字符 n-gram）
+2. 分类器：`SGDClassifier(loss="log_loss")`
+3. 切分：`train/val/test = 70/15/15`
+4. 阈值选择：优先满足 `FPR` 目标
 
-```text
-score = w_u * p_url + w_t * p_text
-```
+## 4. 为什么要有“融合调参”这层
 
-其中 `w_u/w_t` 不是固定值，而是带置信度动态缩放：
+因为你的线上误报/漏报，很多时候是“阈值和权重问题”，不是“基础模型必须重训”。
 
-```text
-c_u = |p_url - 0.5| + 0.5
-c_t = |p_text - 0.5| + 0.5
-w_u = (w_u_base * c_u) / (w_u_base * c_u + w_t_base * c_t)
-w_t = 1 - w_u
-```
+融合调参的价值：
 
-含义：谁离 0.5 更远（更“有把握”），谁权重会被放大。
+1. 成本低：不动基础模型。
+2. 风险低：有门槛检查，不会小样本乱调。
+3. 可回滚：每次调参是一个版本，激活可回退。
+4. 易解释：每个参数组合都有指标。
 
-## 6. 如何找到“最合适点”
+## 5. 为什么用网格搜索，不用更复杂方法
 
-最合适点 = `(w_url_base, threshold)`，其中 `w_text_base = 1 - w_url_base`。
+在这个场景里，参数空间很小（权重+阈值），网格搜索反而是最稳妥的：
 
-做法：
+1. 足够快。
+2. 易复现。
+3. 易审计。
+4. 指标对比清楚。
 
-1. 准备“邮件级标注集”CSV，至少包含：
-   - `url_prob`
-   - `text_prob`
-   - `label`（是否恶意）
-2. 网格搜索：
-   - `w_url_base`：`0.0~1.0`，步长 0.05
-   - `threshold`：`0.50~0.95`，步长 0.01
-3. 先筛 `FPR <= 目标值`，再选 Recall 最高。
+可以替代，但没必要先上复杂方案：
 
-这就是“最合适点”的工程定义。
+1. 可替代为贝叶斯优化。
+2. 可替代为遗传算法。
+3. 可替代为可微优化。
 
-## 7. 项目内一键命令
+这些更复杂，但收益不一定明显，且解释成本更高。
 
-### 7.1 重训正文 + URL 模型
+## 6. 什么时候应该重训基础模型
+
+满足下面条件再做：
+
+1. 反馈数据量够大，融合调参仍不理想。
+2. 错误主要来自单模型本身（不是阈值错）。
+3. 数据分布明显变化（业务语料、URL模式变了）。
+
+## 7. 常用命令
+
+### 7.1 手动重训（可选）
 
 ```bash
 /Users/qwx/dev/code/PEA_Agent/.py311/bin/python /Users/qwx/dev/code/PEA_Agent/ml/training/retrain_models.py
 ```
 
-输出：
-- `/Users/qwx/dev/code/PEA_Agent/ml/artifacts/phishing_body.pkl`
-- `/Users/qwx/dev/code/PEA_Agent/ml/artifacts/phishing_url.pkl`
-- `ml/artifacts/retrain_report_*.json`
-
-说明：
-- 线上推理只读取 `ml/artifacts/` 下产物。
-- `ml/training/**/model/*.pkl` 旧副本已从主仓库移除，避免与线上模型混淆。
-
-### 7.2 搜索融合最优权重/阈值
+### 7.2 离线融合调参（脚本方式）
 
 ```bash
 /Users/qwx/dev/code/PEA_Agent/.py311/bin/python /Users/qwx/dev/code/PEA_Agent/ml/training/tune_fusion_threshold.py \
@@ -116,15 +102,3 @@ w_t = 1 - w_u
   --fpr-target 0.03 \
   --output-json /tmp/fusion_tuning.json
 ```
-
-## 8. 常见误区
-
-- 用 test 集反复调阈值：会高估真实效果。
-- 只看 Accuracy：在不平衡数据上误导性很强。
-- 训练集很旧但不更新：会导致线上误报/漏报显著上升。
-
-## 9. 推荐迭代节奏
-
-1. 每 2~4 周增量补充线上真实样本。
-2. 每次重训必须产出同一格式报告（便于横向比较）。
-3. 线上阈值调整必须有离线验证记录，避免拍脑袋改参。
