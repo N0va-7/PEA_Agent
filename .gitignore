@@ -14,7 +14,6 @@ runtime/reports/*
 *.env
 .env
 backend/.env
-legacy/agent_archive/.env
 
 # Local Python/Conda environments and caches
 .py311/
@@ -30,4 +29,5 @@ Library/
 frontend/node_modules/
 frontend/dist/
 frontend/test-results/
+frontend/.vite/
 .npm-cache/

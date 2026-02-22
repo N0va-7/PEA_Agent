@@ -100,6 +100,10 @@ w_t = 1 - w_u
 - `/Users/qwx/dev/code/PEA_Agent/ml/artifacts/phishing_url.pkl`
 - `ml/artifacts/retrain_report_*.json`
 
+说明：
+- 线上推理只读取 `ml/artifacts/` 下产物。
+- `ml/training/**/model/*.pkl` 旧副本已从主仓库移除，避免与线上模型混淆。
+
 ### 7.2 搜索融合最优权重/阈值
 
 ```bash

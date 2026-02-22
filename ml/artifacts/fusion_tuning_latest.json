@@ -1,5 +1,5 @@
 {
-  "csv": "/Users/qwx/dev/code/PEA_Agent/ml/artifacts/labeled_email_level_scores_from_text_training.csv",
+  "csv": "generated_from_feedback_dataset",
   "row_count": 18631,
   "fpr_target": 0.03,
   "selection_reason": "Selected from candidates with FPR <= 0.0300",
