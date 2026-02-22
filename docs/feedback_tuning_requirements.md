@@ -1,5 +1,9 @@
 # 反馈调参与处理需求（实现前冻结草案）
 
+关联主文档：
+- `docs/project_handbook.md`
+- `docs/handbook/03_model_training_and_feedback_tuning.md`
+
 ## 1. 背景与首要问题
 当前系统的核心问题不是模型复杂度，而是缺少真实线上反馈闭环，导致无法可靠评估误报/漏报，也无法基于真实分布持续调优融合参数。
 

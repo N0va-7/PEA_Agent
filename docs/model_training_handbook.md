@@ -1,5 +1,9 @@
 # 模型训练原理手册（PEA Agent）
 
+配套主文档：
+- `docs/project_handbook.md`
+- `docs/handbook/03_model_training_and_feedback_tuning.md`
+
 ## 1. 你当前方案是否合理
 
 是合理的。  
