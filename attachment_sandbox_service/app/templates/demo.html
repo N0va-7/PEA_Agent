@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attachment Analysis Sandbox</title>
+    <style>
+      :root {
+        --bg: #071216;
+        --bg-soft: #0d1b20;
+        --panel: rgba(10, 20, 26, 0.9);
+        --panel-soft: rgba(255, 255, 255, 0.035);
+        --line: rgba(148, 208, 182, 0.17);
+        --line-strong: rgba(148, 208, 182, 0.28);
+        --text: #edf7f1;
+        --muted: #95ada0;
+        --good: #7fe0a1;
+        --warn: #f2c56f;
+        --bad: #ff7c7c;
+        --accent: #9af1d4;
+        --accent-2: #f6d68a;
+        --shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 10% 0%, rgba(69, 140, 116, 0.3), transparent 26%),
+          radial-gradient(circle at 92% 8%, rgba(246, 214, 138, 0.16), transparent 22%),
+          linear-gradient(145deg, #061015 0%, #09161c 45%, #060c10 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+        background-size: 28px 28px;
+        mask-image: radial-gradient(circle at center, black 45%, transparent 92%);
+        pointer-events: none;
+      }
+
+      .shell {
+        width: min(1380px, calc(100vw - 28px));
+        margin: 18px auto 28px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero,
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        background: var(--panel);
+        backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        overflow: hidden;
+        position: relative;
+        padding: 30px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        top: -100px;
+        right: -60px;
+        width: 320px;
+        height: 320px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(154, 241, 212, 0.24), transparent 64%);
+      }
+
+      .eyebrow,
+      .label,
+      .kpi-label {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 0.74rem;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 10ch;
+        font-size: clamp(2.6rem, 5vw, 5.2rem);
+        line-height: 0.92;
+        font-weight: 820;
+      }
+
+      .subhead {
+        margin: 0;
+        max-width: 66ch;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .kpi {
+        padding: 16px 18px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .kpi-value {
+        margin-top: 10px;
+        font-size: 1.7rem;
+        font-weight: 760;
+      }
+
+      .kpi-label {
+        color: var(--muted);
+        font-size: 0.68rem;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 360px minmax(340px, 1fr) minmax(420px, 1.1fr);
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 1.08rem;
+        font-weight: 760;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      input[type="text"],
+      input[type="file"],
+      textarea,
+      select {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--text);
+        padding: 12px 14px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 280px;
+        resize: vertical;
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        font-size: 0.83rem;
+        line-height: 1.55;
+      }
+
+      .analysis-form,
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .actions,
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 16px;
+        font: inherit;
+        cursor: pointer;
+        transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+
+      .primary {
+        background: linear-gradient(135deg, #a9f4d7, #75cb96);
+        color: #082014;
+        font-weight: 800;
+      }
+
+      .secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+      }
+
+      .danger {
+        background: rgba(255, 124, 124, 0.14);
+        color: #ffd7d7;
+      }
+
+      .status-chip,
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.78rem;
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .badge.readonly {
+        color: var(--accent-2);
+      }
+
+      .badge.editable {
+        color: var(--accent);
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+
+      .dot.allow {
+        background: var(--good);
+      }
+
+      .dot.block {
+        background: var(--bad);
+      }
+
+      .dot.quarantine,
+      .dot.error {
+        background: var(--warn);
+      }
+
+      .console,
+      .raw-box,
+      .editor-shell,
+      .rule-list {
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.028);
+      }
+
+      .console {
+        padding: 16px;
+        display: grid;
+        gap: 14px;
+        min-height: 164px;
+      }
+
+      .result-card {
+        display: grid;
+        gap: 14px;
+      }
+
+      .result-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .result-verdict {
+        margin: 0;
+        font-size: 2.2rem;
+        line-height: 1;
+        font-weight: 820;
+        text-transform: uppercase;
+      }
+
+      .allow {
+        color: var(--good);
+      }
+
+      .block {
+        color: var(--bad);
+      }
+
+      .quarantine,
+      .error {
+        color: var(--warn);
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .box {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        display: grid;
+        gap: 8px;
+      }
+
+      .box .label {
+        font-size: 0.7rem;
+        color: var(--muted);
+      }
+
+      .mono {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        overflow-wrap: anywhere;
+      }
+
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+
+      .list-item {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.038);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+
+      .raw-box {
+        min-height: 220px;
+        max-height: 360px;
+        overflow: auto;
+        padding: 14px;
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        font-size: 0.8rem;
+        line-height: 1.55;
+      }
+
+      .rules-layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 14px;
+        min-height: 720px;
+      }
+
+      .rule-list {
+        padding: 10px;
+        display: grid;
+        gap: 10px;
+        align-content: start;
+        max-height: 100%;
+        overflow: auto;
+      }
+
+      .rule-search {
+        position: sticky;
+        top: 0;
+        background: linear-gradient(180deg, rgba(10, 20, 26, 0.95), rgba(10, 20, 26, 0.85));
+        padding-bottom: 8px;
+        z-index: 1;
+      }
+
+      .rule-entry {
+        width: 100%;
+        text-align: left;
+        border-radius: 16px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid transparent;
+        color: var(--text);
+        display: grid;
+        gap: 8px;
+      }
+
+      .rule-entry:hover,
+      .rule-entry.active {
+        border-color: var(--line-strong);
+        background: rgba(154, 241, 212, 0.08);
+      }
+
+      .rule-entry-path {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.76rem;
+        overflow-wrap: anywhere;
+      }
+
+      .rule-entry-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .editor-shell {
+        padding: 14px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .editor-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .editor-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
+      .hint {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 1220px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .rules-layout {
+          grid-template-columns: 1fr;
+          min-height: auto;
+        }
+
+        .rule-list {
+          max-height: 280px;
+        }
+      }
+
+      @media (max-width: 920px) {
+        .hero-grid,
+        .kpis,
+        .meta-grid {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          max-width: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow">Static Attachment Sandbox</div>
+        <div class="hero-grid">
+          <div class="stack">
+            <h1>邮件附件 恶意分析控制台</h1>
+            <p class="subhead">
+              这个 demo 不只是上传文件。它同时展示三条能力链：附件分析接口、JSON 结果解释、YARA 规则目录与规则 CRUD。
+              你在页面上的每一步操作都直连当前服务的真实 API。
+            </p>
+          </div>
+          <div class="kpis">
+            <div class="kpi">
+              <div class="kpi-label">Engine</div>
+              <div id="metric-engine" class="kpi-value">YARA + Parser</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Rules Version</div>
+              <div id="metric-version" class="kpi-value">loading</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Loaded Rules</div>
+              <div id="metric-rule-count" class="kpi-value">0</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Pipeline</div>
+              <div id="metric-pipeline" class="kpi-value">Async Worker</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="eyebrow">Submit Job</div>
+              <h2 class="panel-title">附件分析</h2>
+            </div>
+            <div class="status-chip">
+              <span id="health-dot" class="dot"></span>
+              <span id="health-text">idle</span>
+            </div>
+          </div>
+
+          <p id="status-text" class="hint">等待提交样本。</p>
+
+          <form id="upload-form" class="analysis-form">
+            <label>
+              Source ID
+              <input id="source-id" type="text" value="web-demo" />
+            </label>
+            <label>
+              Attachment
+              <input id="file-input" type="file" required />
+            </label>
+            <div class="actions">
+              <button id="submit-button" class="primary" type="submit">上传并分析</button>
+              <button id="reset-button" class="secondary" type="button">重置结果</button>
+            </div>
+          </form>
+
+          <div class="stack">
+            <div class="eyebrow">Quick Samples</div>
+            <p class="hint">直接调用同一套 API，方便现场演示 verdict、reason 和 cache 行为。</p>
+            <div class="chips">
+              <button id="sample-benign" class="secondary" type="button">良性 PDF</button>
+              <button id="sample-malicious" class="secondary" type="button">恶意脚本</button>
+              <button id="sample-rtf" class="secondary" type="button">恶意 RTF</button>
+            </div>
+          </div>
+
+          <div class="console">
+            <div class="eyebrow">Last Request</div>
+            <pre id="request-preview">{}</pre>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="eyebrow">Analysis Result</div>
+              <h2 class="panel-title">JSON 结果与理由</h2>
+            </div>
+          </div>
+
+          <div id="result-card" class="result-card" hidden>
+            <div class="result-top">
+              <div>
+                <p id="verdict-text" class="result-verdict">ALLOW</p>
+                <p id="verdict-summary" class="hint">分析完成。</p>
+              </div>
+              <div class="status-chip">
+                <span>Risk</span>
+                <strong id="risk-score">0</strong>
+              </div>
+            </div>
+
+            <div class="meta-grid">
+              <div class="box">
+                <div class="label">Job ID</div>
+                <div id="job-id" class="mono"></div>
+              </div>
+              <div class="box">
+                <div class="label">Normalized Type</div>
+                <div id="normalized-type" class="mono"></div>
+              </div>
+              <div class="box">
+                <div class="label">Sample SHA256</div>
+                <div id="sample-sha" class="mono"></div>
+              </div>
+              <div class="box">
+                <div class="label">Rule Version</div>
+                <div id="rule-version" class="mono"></div>
+              </div>
+            </div>
+
+            <div class="box">
+              <div class="label">Reasons</div>
+              <ul id="reasons" class="list"></ul>
+            </div>
+
+            <div class="box">
+              <div class="label">Artifacts</div>
+              <ul id="artifacts" class="list"></ul>
+            </div>
+          </div>
+
+          <div class="raw-box">
+            <div class="eyebrow" style="margin-bottom: 10px">Raw JSON</div>
+            <pre id="result-json">{}</pre>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="eyebrow">Rule Workbench</div>
+              <h2 class="panel-title">规则目录与 CRUD</h2>
+            </div>
+            <div class="editor-actions">
+              <button id="refresh-rules" class="secondary" type="button">刷新规则</button>
+              <button id="new-rule" class="secondary" type="button">新建规则</button>
+            </div>
+          </div>
+
+          <p class="hint">
+            右侧可以直接查看和编辑规则。`external/` 下的 vendored 规则是只读，`local/` 下可以新建、修改和删除。
+          </p>
+
+          <div class="rules-layout">
+            <div class="rule-list">
+              <div class="rule-search">
+                <label>
+                  过滤规则
+                  <input id="rule-filter" type="text" placeholder="按路径或 rule name 过滤" />
+                </label>
+              </div>
+              <div id="rule-list-items" class="stack"></div>
+            </div>
+
+            <div class="editor-shell">
+              <div class="editor-top">
+                <div>
+                  <div class="eyebrow">Rule Editor</div>
+                  <div id="editor-title" class="panel-title">未选择规则</div>
+                </div>
+                <div class="editor-actions">
+                  <span id="editor-mode" class="badge">idle</span>
+                  <span id="editor-source-kind" class="badge">n/a</span>
+                </div>
+              </div>
+
+              <label>
+                Rule Path
+                <input id="rule-path" type="text" placeholder="local/custom_rule.yar" />
+              </label>
+
+              <label>
+                Rule Content
+                <textarea id="rule-content" spellcheck="false" placeholder="rule LOCAL_Demo { condition: true }"></textarea>
+              </label>
+
+              <div class="two-col">
+                <p id="rule-status" class="small">选择一条规则，或者新建一个 `local/*.yar` 文件。</p>
+                <div class="editor-actions">
+                  <button id="save-rule" class="primary" type="button">保存规则</button>
+                  <button id="delete-rule" class="danger" type="button">删除规则</button>
+                </div>
+              </div>
+
+              <div class="raw-box">
+                <div class="eyebrow" style="margin-bottom: 10px">Rule Summary</div>
+                <pre id="rule-json">{}</pre>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        selectedRulePath: null,
+        rules: [],
+        health: null,
+      };
+
+      const uploadForm = document.getElementById("upload-form");
+      const fileInput = document.getElementById("file-input");
+      const sourceIdInput = document.getElementById("source-id");
+      const submitButton = document.getElementById("submit-button");
+      const resetButton = document.getElementById("reset-button");
+      const sampleBenign = document.getElementById("sample-benign");
+      const sampleMalicious = document.getElementById("sample-malicious");
+      const sampleRtf = document.getElementById("sample-rtf");
+      const statusText = document.getElementById("status-text");
+      const healthText = document.getElementById("health-text");
+      const healthDot = document.getElementById("health-dot");
+      const requestPreview = document.getElementById("request-preview");
+
+      const metricVersion = document.getElementById("metric-version");
+      const metricRuleCount = document.getElementById("metric-rule-count");
+
+      const resultCard = document.getElementById("result-card");
+      const verdictText = document.getElementById("verdict-text");
+      const verdictSummary = document.getElementById("verdict-summary");
+      const riskScore = document.getElementById("risk-score");
+      const jobId = document.getElementById("job-id");
+      const normalizedType = document.getElementById("normalized-type");
+      const sampleSha = document.getElementById("sample-sha");
+      const ruleVersion = document.getElementById("rule-version");
+      const reasonsList = document.getElementById("reasons");
+      const artifactsList = document.getElementById("artifacts");
+      const resultJson = document.getElementById("result-json");
+
+      const ruleFilter = document.getElementById("rule-filter");
+      const ruleListItems = document.getElementById("rule-list-items");
+      const refreshRulesButton = document.getElementById("refresh-rules");
+      const newRuleButton = document.getElementById("new-rule");
+      const rulePathInput = document.getElementById("rule-path");
+      const ruleContentInput = document.getElementById("rule-content");
+      const editorTitle = document.getElementById("editor-title");
+      const editorMode = document.getElementById("editor-mode");
+      const editorSourceKind = document.getElementById("editor-source-kind");
+      const ruleStatus = document.getElementById("rule-status");
+      const saveRuleButton = document.getElementById("save-rule");
+      const deleteRuleButton = document.getElementById("delete-rule");
+      const ruleJson = document.getElementById("rule-json");
+
+      function pretty(value) {
+        return JSON.stringify(value, null, 2);
+      }
+
+      function setBusyState(busy) {
+        submitButton.disabled = busy;
+        sampleBenign.disabled = busy;
+        sampleMalicious.disabled = busy;
+        sampleRtf.disabled = busy;
+        healthText.textContent = busy ? "processing" : "ready";
+        if (busy) {
+          healthDot.className = "dot quarantine";
+        } else if (state.health) {
+          healthDot.className = "dot allow";
+        }
+      }
+
+      function setVerdictStyle(verdict) {
+        verdictText.className = `result-verdict ${verdict || ""}`;
+      }
+
+      function renderList(target, items, emptyText, mapper) {
+        target.innerHTML = "";
+        if (!items || items.length === 0) {
+          const node = document.createElement("li");
+          node.className = "list-item";
+          node.textContent = emptyText;
+          target.appendChild(node);
+          return;
+        }
+        items.forEach((item) => {
+          const node = document.createElement("li");
+          node.className = "list-item";
+          node.textContent = mapper(item);
+          target.appendChild(node);
+        });
+      }
+
+      function renderResult(result) {
+        resultCard.hidden = false;
+        const verdict = result.verdict || result.status || "unknown";
+        setVerdictStyle(verdict);
+        verdictText.textContent = verdict;
+        verdictSummary.textContent = `status=${result.status} · source=${result.source_id}`;
+        riskScore.textContent = result.risk_score ?? "n/a";
+        jobId.textContent = result.job_id || "n/a";
+        normalizedType.textContent = result.normalized_type || "unknown";
+        sampleSha.textContent = result.sample_sha256 || "n/a";
+        ruleVersion.textContent = result.rule_version || "n/a";
+        renderList(reasonsList, result.reasons || [], "No detection reasons", (item) => item);
+        renderList(artifactsList, result.artifacts || [], "No artifacts", (item) => pretty(item));
+        resultJson.textContent = pretty(result);
+        statusText.textContent = `分析完成，verdict=${verdict}`;
+      }
+
+      function renderRuleList() {
+        const query = ruleFilter.value.trim().toLowerCase();
+        const filtered = state.rules.filter((rule) => {
+          if (!query) {
+            return true;
+          }
+          const haystack = `${rule.path} ${rule.rule_names.join(" ")}`.toLowerCase();
+          return haystack.includes(query);
+        });
+
+        ruleListItems.innerHTML = "";
+        if (filtered.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "list-item";
+          empty.textContent = "没有匹配规则";
+          ruleListItems.appendChild(empty);
+          return;
+        }
+
+        filtered.forEach((rule) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `rule-entry ${state.selectedRulePath === rule.path ? "active" : ""}`;
+          button.innerHTML = `
+            <div class="rule-entry-path">${rule.path}</div>
+            <div class="rule-entry-meta">
+              <span>${rule.source_kind}</span>
+              <span>${rule.editable ? "editable" : "readonly"}</span>
+            </div>
+          `;
+          button.addEventListener("click", () => loadRule(rule.path));
+          ruleListItems.appendChild(button);
+        });
+      }
+
+      function updateEditor(detail, mode) {
+        const isEditable = Boolean(detail?.editable);
+        state.selectedRulePath = detail?.path || null;
+        rulePathInput.value = detail?.path || "";
+        ruleContentInput.value = detail?.content || "";
+        editorTitle.textContent = detail?.path || "新建规则";
+        editorMode.textContent = mode;
+        editorMode.className = `badge ${mode === "create" ? "editable" : "readonly"}`;
+        editorSourceKind.textContent = detail?.source_kind || "local";
+        editorSourceKind.className = `badge ${isEditable ? "editable" : "readonly"}`;
+        ruleContentInput.readOnly = !isEditable && mode !== "create";
+        saveRuleButton.disabled = !isEditable && mode !== "create";
+        deleteRuleButton.disabled = !detail?.path || !isEditable || mode === "create";
+        ruleStatus.textContent = detail
+          ? `${detail.rule_names.length || 0} rules in file · ${detail.size_bytes || 0} bytes`
+          : "输入 local/*.yar 路径并填写内容后点击保存。";
+        ruleJson.textContent = pretty(detail || {});
+        renderRuleList();
+      }
+
+      async function loadRule(path) {
+        ruleStatus.textContent = "加载规则中。";
+        const response = await fetch(`/rules/${path}`);
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const detail = await response.json();
+        updateEditor(detail, "edit");
+      }
+
+      async function refreshRules() {
+        const response = await fetch("/rules");
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const payload = await response.json();
+        state.rules = payload.rules || [];
+        metricRuleCount.textContent = String(state.rules.length);
+        metricVersion.textContent = payload.rules_version || "n/a";
+        renderRuleList();
+        if (state.selectedRulePath && state.rules.some((item) => item.path === state.selectedRulePath)) {
+          await loadRule(state.selectedRulePath);
+        }
+      }
+
+      async function saveRule() {
+        const path = rulePathInput.value.trim();
+        const content = ruleContentInput.value;
+        if (!path) {
+          ruleStatus.textContent = "Rule Path 不能为空。";
+          return;
+        }
+        const exists = state.rules.some((item) => item.path === path);
+        const method = exists ? "PUT" : "POST";
+        const url = exists ? `/rules/${path}` : "/rules";
+
+        ruleStatus.textContent = exists ? "更新规则中。" : "创建规则中。";
+        const response = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, content }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || JSON.stringify(payload));
+        }
+        await refreshRules();
+        await loadRule(payload.rule.path);
+        ruleStatus.textContent = `${exists ? "更新" : "创建"}完成，并已重编译规则集。`;
+      }
+
+      async function deleteRule() {
+        const path = rulePathInput.value.trim();
+        if (!path) {
+          return;
+        }
+        ruleStatus.textContent = "删除规则中。";
+        const response = await fetch(`/rules/${path}`, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        state.selectedRulePath = null;
+        updateEditor(null, "create");
+        await refreshRules();
+        ruleStatus.textContent = "规则已删除，并已重编译规则集。";
+      }
+
+      async function pollJob(jobIdValue) {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const response = await fetch(`/analysis/jobs/${jobIdValue}`);
+          if (!response.ok) {
+            throw new Error(`poll failed: ${response.status}`);
+          }
+          const result = await response.json();
+          statusText.textContent = `轮询中: ${result.status}`;
+          if (result.status === "completed") {
+            renderResult(result);
+            setBusyState(false);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+        throw new Error("analysis timeout");
+      }
+
+      async function submitMultipart(file) {
+        const payload = new FormData();
+        payload.append("file", file);
+        payload.append("source_id", sourceIdInput.value || "web-demo");
+        requestPreview.textContent = `multipart/form-data\\nfile=${file.name}\\nsource_id=${sourceIdInput.value || "web-demo"}`;
+        const response = await fetch("/analysis/jobs", {
+          method: "POST",
+          body: payload,
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        return response.json();
+      }
+
+      async function submitInline(payload) {
+        requestPreview.textContent = pretty(payload);
+        const response = await fetch("/analysis/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        return response.json();
+      }
+
+      function buildRtfSample() {
+        return "{\\\\rtf1\\\\ansi\\\\ansicpg1252\\\\fromtext \\\\objdata 4f4c45324c696e6b d0cf11e0a1b11ae1 68007400740070003a002f002f00}";
+      }
+
+      async function runSample(kind) {
+        const sampleMap = {
+          benign: {
+            filename: "report.pdf",
+            source_id: sourceIdInput.value || "web-demo",
+            declared_mime: "application/pdf",
+            content_base64: btoa("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\n"),
+          },
+          malicious: {
+            filename: "invoice.js",
+            source_id: sourceIdInput.value || "web-demo",
+            declared_mime: "application/javascript",
+            content_base64: btoa("Invoke-WebRequest https://evil.example/login"),
+          },
+          rtf: {
+            filename: "invoice.rtf",
+            source_id: sourceIdInput.value || "web-demo",
+            declared_mime: "application/rtf",
+            content_base64: btoa(buildRtfSample()),
+          },
+        };
+        setBusyState(true);
+        statusText.textContent = "提交样例中。";
+        resultCard.hidden = true;
+        const created = await submitInline(sampleMap[kind]);
+        await pollJob(created.job_id);
+      }
+
+      uploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = fileInput.files[0];
+        if (!file) {
+          statusText.textContent = "请选择一个附件。";
+          return;
+        }
+        try {
+          setBusyState(true);
+          resultCard.hidden = true;
+          statusText.textContent = "上传样本中。";
+          const created = await submitMultipart(file);
+          await pollJob(created.job_id);
+        } catch (error) {
+          setBusyState(false);
+          statusText.textContent = `提交失败: ${error.message}`;
+          healthText.textContent = "error";
+          healthDot.className = "dot error";
+        }
+      });
+
+      sampleBenign.addEventListener("click", async () => {
+        try {
+          await runSample("benign");
+        } catch (error) {
+          setBusyState(false);
+          statusText.textContent = `样例失败: ${error.message}`;
+          healthText.textContent = "error";
+          healthDot.className = "dot error";
+        }
+      });
+
+      sampleMalicious.addEventListener("click", async () => {
+        try {
+          await runSample("malicious");
+        } catch (error) {
+          setBusyState(false);
+          statusText.textContent = `样例失败: ${error.message}`;
+          healthText.textContent = "error";
+          healthDot.className = "dot error";
+        }
+      });
+
+      sampleRtf.addEventListener("click", async () => {
+        try {
+          await runSample("rtf");
+        } catch (error) {
+          setBusyState(false);
+          statusText.textContent = `样例失败: ${error.message}`;
+          healthText.textContent = "error";
+          healthDot.className = "dot error";
+        }
+      });
+
+      resetButton.addEventListener("click", () => {
+        resultCard.hidden = true;
+        resultJson.textContent = "{}";
+        requestPreview.textContent = "{}";
+        fileInput.value = "";
+        statusText.textContent = "等待提交样本。";
+        healthText.textContent = "ready";
+        healthDot.className = "dot allow";
+      });
+
+      refreshRulesButton.addEventListener("click", async () => {
+        try {
+          ruleStatus.textContent = "刷新规则列表中。";
+          await refreshRules();
+          ruleStatus.textContent = "规则列表已刷新。";
+        } catch (error) {
+          ruleStatus.textContent = `刷新失败: ${error.message}`;
+        }
+      });
+
+      newRuleButton.addEventListener("click", () => {
+        state.selectedRulePath = null;
+        rulePathInput.value = "local/demo_rule.yar";
+        ruleContentInput.value = `rule LOCAL_Demo_Attachment {\n    meta:\n        reason = "KNOWN_MALWARE_SIGNATURE"\n        score = 100\n        source = "local-yara"\n    strings:\n        $marker = "DEMO-ATTACHMENT-MARKER"\n    condition:\n        $marker\n}`;
+        updateEditor(
+          {
+            path: "local/demo_rule.yar",
+            content: ruleContentInput.value,
+            editable: true,
+            source_kind: "local",
+            rule_names: ["LOCAL_Demo_Attachment"],
+            size_bytes: ruleContentInput.value.length,
+          },
+          "create"
+        );
+        ruleStatus.textContent = "这是一个可直接保存的本地规则模板。";
+      });
+
+      saveRuleButton.addEventListener("click", async () => {
+        try {
+          await saveRule();
+        } catch (error) {
+          ruleStatus.textContent = `保存失败: ${error.message}`;
+        }
+      });
+
+      deleteRuleButton.addEventListener("click", async () => {
+        try {
+          await deleteRule();
+        } catch (error) {
+          ruleStatus.textContent = `删除失败: ${error.message}`;
+        }
+      });
+
+      ruleFilter.addEventListener("input", () => {
+        renderRuleList();
+      });
+
+      Promise.all([fetch("/healthz").then((r) => r.json()), refreshRules()])
+        .then(([health]) => {
+          state.health = health;
+          healthText.textContent = "ready";
+          healthDot.className = "dot allow";
+          metricVersion.textContent = health.rules_version || "n/a";
+          statusText.textContent = `引擎已就绪，规则版本 ${health.rules_version}`;
+          updateEditor(null, "create");
+        })
+        .catch((error) => {
+          statusText.textContent = `初始化失败: ${error.message}`;
+          healthText.textContent = "error";
+          healthDot.className = "dot error";
+        });
+    </script>
+  </body>
+</html>

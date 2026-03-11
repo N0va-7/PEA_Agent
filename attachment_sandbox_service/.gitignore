@@ -1,0 +1,10 @@
+.DS_Store
+.pytest_cache/
+.sandbox-data/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+sandbox.db

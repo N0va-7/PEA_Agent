@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: sandbox
+      POSTGRES_USER: sandbox
+      POSTGRES_PASSWORD: sandbox
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sandbox -d sandbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      SANDBOX_DATABASE_URL: postgresql+asyncpg://sandbox:sandbox@postgres:5432/sandbox
+      SANDBOX_QUEUE_BACKEND: redis
+      SANDBOX_REDIS_URL: redis://redis:6379/0
+      SANDBOX_EMBEDDED_WORKER: "false"
+      SANDBOX_OBJECT_STORE_ROOT: /var/lib/sandbox/objects
+      SANDBOX_COMPILED_RULES_PATH: /var/lib/sandbox/compiled/default_rules.yarc
+    ports:
+      - "8000:8000"
+    volumes:
+      - sandbox_objects:/var/lib/sandbox
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      SANDBOX_DATABASE_URL: postgresql+asyncpg://sandbox:sandbox@postgres:5432/sandbox
+      SANDBOX_QUEUE_BACKEND: redis
+      SANDBOX_REDIS_URL: redis://redis:6379/0
+      SANDBOX_EMBEDDED_WORKER: "false"
+      SANDBOX_OBJECT_STORE_ROOT: /var/lib/sandbox/objects
+      SANDBOX_COMPILED_RULES_PATH: /var/lib/sandbox/compiled/default_rules.yarc
+    volumes:
+      - sandbox_objects:/var/lib/sandbox
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  sandbox_objects:

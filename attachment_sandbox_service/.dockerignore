@@ -1,0 +1,13 @@
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.DS_Store
+tests
+.sandbox-data
+sandbox.db
+.vendor
+.vendor-py313
+.vendor-py314

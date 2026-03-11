@@ -31,3 +31,11 @@ frontend/dist/
 frontend/test-results/
 frontend/.vite/
 .npm-cache/
+
+# Embedded attachment sandbox workspace artifacts
+attachment_sandbox_service/.pytest_cache/
+attachment_sandbox_service/.venv/
+attachment_sandbox_service/__pycache__/
+attachment_sandbox_service/*.db
+attachment_sandbox_service/sandbox.db
+attachment_sandbox_service/.sandbox-data/
