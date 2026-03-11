@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from app.config import Settings
 from app.schemas import (
     JobCreateResponse,
+    JobListResponse,
     JobStatusResponse,
     JsonJobCreateRequest,
     RuleDetailResponse,
@@ -111,6 +112,37 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             rule_version=job.rule_version,
             sample_sha256=job.sample_sha256,
             source_id=job.source_id,
+            filename=job.filename,
+            declared_mime=job.declared_mime,
+            created_at=job.created_at.isoformat() if job.created_at else None,
+            updated_at=job.updated_at.isoformat() if job.updated_at else None,
+            error_message=job.error_message,
+        )
+
+    @router.get("/analysis/jobs", response_model=JobListResponse)
+    async def list_jobs(limit: int = 50) -> JobListResponse:
+        jobs = await sandbox.list_jobs(limit=limit)
+        return JobListResponse(
+            items=[
+                JobStatusResponse(
+                    job_id=job.job_id,
+                    status=job.status,
+                    verdict=job.verdict,
+                    risk_score=job.risk_score,
+                    reasons=job.reasons,
+                    normalized_type=job.normalized_type,
+                    artifacts=job.artifacts,
+                    rule_version=job.rule_version,
+                    sample_sha256=job.sample_sha256,
+                    source_id=job.source_id,
+                    filename=job.filename,
+                    declared_mime=job.declared_mime,
+                    created_at=job.created_at.isoformat() if job.created_at else None,
+                    updated_at=job.updated_at.isoformat() if job.updated_at else None,
+                    error_message=job.error_message,
+                )
+                for job in jobs
+            ]
         )
 
     @router.get("/internal/quarantine")

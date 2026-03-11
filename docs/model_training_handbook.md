@@ -1,104 +1,92 @@
-# 模型训练手册（直白版）
+# 模型训练手册（URL-only）
 
-## 1. 先回答你的核心疑问
+## 1. 当前还保留什么
 
-### 1.1 `retrain_models.py` 是干嘛的
+当前仓库只保留 URL 模型训练链路。
 
-它是“离线重训工具”。
+1. 训练数据：`ml/training/email_url/phishing_site_urls.csv`
+2. 线上模型产物：`ml/artifacts/phishing_url.pkl`
+3. 教学 notebook：`output/jupyter-notebook/url-model-training-walkthrough.ipynb`
+4. 图表导出目录：`output/jupyter-notebook/url-model-figures/`
+5. 离线调参脚本：`ml/training/tune_fusion_threshold.py`
 
-它做四件事：
+正文模型、正文训练数据和 URL 重训脚本已经移除，不再是当前系统的一部分。
 
-1. 读两份训练数据 CSV（正文、URL）。
-2. 训练两套模型并导出 `.pkl`。
-3. 在验证集上找阈值。
-4. 输出重训报告 `retrain_report_*.json`。
+## 2. 现在怎么理解这个模型
 
-### 1.2 目前项目有自动用到它吗
+当前仓库不再提供独立的 URL 重训脚本，保留的是：
 
-没有。
+1. 现有线上产物 `phishing_url.pkl`
+2. 一份可直接运行的教学 notebook，用来展示训练过程、参数选择和基线对比
 
-- 后端代码没有自动调用这个脚本。
-- 只有你手动跑，才会覆盖 `ml/artifacts/*.pkl`。
+推荐阅读入口：
 
-### 1.3 现在的调参数到底是哪一段在跑
+1. `output/jupyter-notebook/url-model-training-walkthrough.ipynb`
 
-是融合调参：
+它会展示：
 
-1. API 收集人工打标样本。
-2. 用 `tune_fusion_threshold.py` 的函数做网格搜索。
-3. 产出 `fusion_tuning_*.json`。
-4. 手动激活后生效。
+1. 当前线上模型的管线结构
+2. 训练集标签分布
+3. 字符级 TF-IDF 的设计原因
+4. `LogisticRegression / SGDClassifier / MultinomialNB` 的对比
+5. ROC、混淆矩阵、高权重特征条形图和词云
+6. 为什么最后保留当前方案
 
-## 2. 当前基础模型产物（按文件实测）
+并且：
 
-当前 `ml/artifacts` 里的两个文件是：
+1. notebook 已预执行，打开就能看到结果
+2. 每个 code cell 前都有讲解
+3. 每张关键图后都有图表解读
 
-1. `phishing_body.pkl`：`TfidfVectorizer + RandomForestClassifier`
-2. `phishing_url.pkl`：`CountVectorizer + LogisticRegression`
+## 3. 训练管线
 
-这和 notebook 内容一致：
+当前保留的 URL 模型思路为：
 
-1. 正文 notebook 包含 `RandomForestClassifier`、`SVC` 方案。
-2. URL notebook 包含 `CountVectorizer + LogisticRegression`、`MultinomialNB` 方案。
+1. 特征：URL 字符级 `TF-IDF`
+2. 分类器：`LogisticRegression`
+3. 优点：对 URL 里的子串、混淆、路径模式比较敏感
+4. 部署优势：产物轻、推理快、容易复现
 
-## 3. `retrain_models.py` 用了什么技术
+## 4. `tune_fusion_threshold.py` 还在做什么
 
-它用的是另一套轻量训练管线：
+它保留为离线实验工具，用来对已有分数做权重和阈值网格搜索。
 
-1. 特征：TF-IDF（正文词 n-gram、URL 字符 n-gram）
-2. 分类器：`SGDClassifier(loss="log_loss")`
-3. 切分：`train/val/test = 70/15/15`
-4. 阈值选择：优先满足 `FPR` 目标
+注意：
 
-## 4. 为什么要有“融合调参”这层
+1. 它不依赖正文模型文件。
+2. 其中的 `text_prob` 可以理解为“内容侧分数”，例如 LLM 内容复核分数。
+3. 它不会自动更新线上主链，只是输出一个 JSON 供离线比较。
 
-因为你的线上误报/漏报，很多时候是“阈值和权重问题”，不是“基础模型必须重训”。
+## 5. 常用命令
 
-融合调参的价值：
-
-1. 成本低：不动基础模型。
-2. 风险低：有门槛检查，不会小样本乱调。
-3. 可回滚：每次调参是一个版本，激活可回退。
-4. 易解释：每个参数组合都有指标。
-
-## 5. 为什么用网格搜索，不用更复杂方法
-
-在这个场景里，参数空间很小（权重+阈值），网格搜索反而是最稳妥的：
-
-1. 足够快。
-2. 易复现。
-3. 易审计。
-4. 指标对比清楚。
-
-可以替代，但没必要先上复杂方案：
-
-1. 可替代为贝叶斯优化。
-2. 可替代为遗传算法。
-3. 可替代为可微优化。
-
-这些更复杂，但收益不一定明显，且解释成本更高。
-
-## 6. 什么时候应该重训基础模型
-
-满足下面条件再做：
-
-1. 反馈数据量够大，融合调参仍不理想。
-2. 错误主要来自单模型本身（不是阈值错）。
-3. 数据分布明显变化（业务语料、URL模式变了）。
-
-## 7. 常用命令
-
-### 7.1 手动重训（可选）
+### 5.1 打开训练讲解 notebook
 
 ```bash
-/Users/qwx/dev/code/PEA_Agent/.py311/bin/python /Users/qwx/dev/code/PEA_Agent/ml/training/retrain_models.py
+jupyter lab /Users/qwx/dev/code/PEA_Agent/output/jupyter-notebook/url-model-training-walkthrough.ipynb
 ```
 
-### 7.2 离线融合调参（脚本方式）
+### 5.2 直接取图表素材
+
+图表会写到：
+
+```text
+/Users/qwx/dev/code/PEA_Agent/output/jupyter-notebook/url-model-figures/
+```
+
+当前包含：
+
+1. `dataset-label-distribution.png`
+2. `model-metric-comparison.png`
+3. `roc-curves.png`
+4. `best-model-confusion-matrix.png`
+5. `feature-weight-bar-charts.png`
+6. `ngram-wordclouds.png`
+
+### 5.3 离线做分数融合实验
 
 ```bash
 /Users/qwx/dev/code/PEA_Agent/.py311/bin/python /Users/qwx/dev/code/PEA_Agent/ml/training/tune_fusion_threshold.py \
-  --csv /path/to/labeled_email_level_scores.csv \
+  --csv /path/to/labeled_url_and_content_scores.csv \
   --fpr-target 0.03 \
   --output-json /tmp/fusion_tuning.json
 ```

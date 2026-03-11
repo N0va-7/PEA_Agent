@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tune fusion weights/threshold for backend final decision."""
+"""Tune offline fusion weights/threshold for URL score and content-review score."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def load_labeled_scores(
 
 
 def fusion_score(url_prob: float, text_prob: float, w_url_base: float, w_text_base: float) -> float:
-    # Keep consistent with backend/workflow/nodes/analysis.py current logic.
+    # Keep consistent with the offline weighted fusion rule used for threshold experiments.
     c_u = abs(url_prob - 0.5) + 0.5
     c_t = abs(text_prob - 0.5) + 0.5
     w_u = (w_url_base * c_u) / (w_url_base * c_u + w_text_base * c_t)

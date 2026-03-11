@@ -25,6 +25,7 @@ PEA Agent 是一个邮件与链接安全分析控制台。
 - 最终决策与 Markdown 报告输出
 - 历史记录、人工反馈、规则管理
 - 独立 URL 检查台
+- URL 模型讲解 notebook 与论文图表导出
 
 ## 缓存与复用
 
@@ -54,6 +55,9 @@ frontend/
 
 attachment_sandbox_service/
   独立静态附件沙箱
+
+output/jupyter-notebook/
+  URL 模型讲解 notebook 与导出图表
 ```
 
 ## 技术栈
@@ -156,8 +160,37 @@ cd frontend
 npm run build
 ```
 
+## URL 模型讲解材料
+
+仓库内提供了一份可直接打开的教学 notebook：
+
+- `output/jupyter-notebook/url-model-training-walkthrough.ipynb`
+
+用途：
+
+- 解释当前线上 URL 模型结构
+- 展示训练集标签分布
+- 对比 `LogisticRegression / SGDClassifier / MultinomialNB`
+- 导出适合论文或汇报直接复用的图表
+
+当前会生成这些图：
+
+- `output/jupyter-notebook/url-model-figures/dataset-label-distribution.png`
+- `output/jupyter-notebook/url-model-figures/model-metric-comparison.png`
+- `output/jupyter-notebook/url-model-figures/roc-curves.png`
+- `output/jupyter-notebook/url-model-figures/best-model-confusion-matrix.png`
+- `output/jupyter-notebook/url-model-figures/feature-weight-bar-charts.png`
+- `output/jupyter-notebook/url-model-figures/ngram-wordclouds.png`
+
+说明：
+
+- notebook 已预执行，打开即可看到结果
+- 每个 code cell 前都带有讲解说明
+- 每张关键图后都带有“图表解读”
+
 ## 说明
 
 - `VT URL` 明确高危时，决策层会直接短路为恶意
 - URL 页面只开放前端入口，不在前端暴露 VT API Key
+- 当前仓库已移除正文模型、正文训练数据和 URL 重训脚本
 - 当前仓库仍保留部分旧工作流节点与历史文档，未全部清理；已经脱离主链的前端遗留页面已删除

@@ -76,6 +76,14 @@ class Repository:
                 return None
             return row_to_job(row)
 
+    async def list_jobs(self, limit: int = 50) -> list[JobRecord]:
+        async with session_scope(self.session_factory) as session:
+            result = await session.execute(
+                select(AnalysisJobModel).order_by(AnalysisJobModel.updated_at.desc()).limit(max(1, min(limit, 200)))
+            )
+            rows = result.scalars().all()
+            return [row_to_job(row) for row in rows]
+
     async def mark_job_running(self, job_id: str) -> JobRecord | None:
         async with session_scope(self.session_factory) as session:
             row = await session.get(AnalysisJobModel, job_id)

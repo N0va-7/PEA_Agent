@@ -35,6 +35,15 @@ class JobStatusResponse(BaseModel):
     rule_version: str | None = None
     sample_sha256: str
     source_id: str
+    filename: str | None = None
+    declared_mime: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    error_message: str | None = None
+
+
+class JobListResponse(BaseModel):
+    items: list[JobStatusResponse] = Field(default_factory=list)
 
 
 class RuleSummaryResponse(BaseModel):

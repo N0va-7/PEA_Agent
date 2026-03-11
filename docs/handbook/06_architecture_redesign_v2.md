@@ -1,5 +1,7 @@
 # 06. 架构重设计（V2）
 
+> 归档说明：这是历史重构草案，保留用于回顾设计演进。当前实现以 URL-only 模型 + VT URL 信誉 + LLM 内容复核 + 附件静态沙箱为准。
+
 ## 1. 为什么要重设计
 
 当前架构的问题，不是“模型不够多”，而是**职责混在一起**：
@@ -287,14 +289,13 @@ V2 推荐链路：
 3. `parse_eml_file`
 4. `extract_urls`
 5. `analyze_attachment_reputation`
-6. `analyze_body_reputation`
-7. `analyze_url_reputation`
-8. `content_security_review`
-9. `preliminary_decision`
-10. `llm_security_review`
-11. `final_decision`
-12. `render_report`
-13. `persist_analysis`
+6. `analyze_url_reputation`
+7. `content_security_review`
+8. `preliminary_decision`
+9. `llm_security_review`
+10. `final_decision`
+11. `render_report`
+12. `persist_analysis`
 
 ## 9. 对当前代码的处理建议
 

@@ -1,14 +1,17 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { sandboxFetch } from '../api'
 
 const sampleFile = ref(null)
 const sourceId = ref('manual-ui')
 const running = ref(false)
+const historyLoading = ref(false)
 const actionError = ref('')
 const actionMessage = ref('')
-const job = ref(null)
+const historyItems = ref([])
+const selectedJobId = ref('')
+
 const selectedFileMeta = computed(() => {
   if (!sampleFile.value) return null
   return {
@@ -18,32 +21,77 @@ const selectedFileMeta = computed(() => {
   }
 })
 
+const selectedJob = computed(() => historyItems.value.find((item) => item.job_id === selectedJobId.value) || null)
+
 const summaryCards = computed(() => {
-  const payload = job.value || {}
+  const payload = selectedJob.value || {}
   return [
-    { label: '状态', value: payload.status || '--' },
-    { label: '裁决', value: payload.verdict || '--' },
-    { label: '风险分', value: payload.risk_score ?? '--' },
-    { label: '类型', value: payload.normalized_type || '--' },
+    { label: '状态', value: statusLabel(payload.status), tone: statusTone(payload.status) },
+    { label: '裁决', value: verdictLabel(payload.verdict), tone: verdictTone(payload.verdict) },
+    { label: '风险分', value: payload.risk_score ?? '--', tone: verdictTone(payload.verdict) },
+    { label: '类型', value: payload.normalized_type || '--', tone: 'neutral' },
   ]
 })
+
 const consoleCards = computed(() => [
   {
     label: '任务状态',
-    value: job.value?.status || (running.value ? 'running' : 'idle'),
-    tone: String(job.value?.status || '').toLowerCase() === 'error' ? 'danger' : 'safe',
+    value: selectedJob.value ? statusLabel(selectedJob.value.status) : running.value ? '扫描中' : '待提交',
+    tone: selectedJob.value ? statusTone(selectedJob.value.status) : running.value ? 'warning' : 'neutral',
   },
   {
-    label: '命中原因',
-    value: job.value?.reasons?.length || 0,
-    tone: job.value?.reasons?.length ? 'warning' : 'neutral',
+    label: '恶意判定',
+    value: historyItems.value.filter((item) => item.verdict === 'block').length,
+    tone: historyItems.value.some((item) => item.verdict === 'block') ? 'danger' : 'neutral',
   },
   {
-    label: '产物数',
-    value: job.value?.artifacts?.length || 0,
-    tone: 'neutral',
+    label: '最近记录',
+    value: historyItems.value.length,
+    tone: historyItems.value.length ? 'safe' : 'neutral',
   },
 ])
+
+function statusLabel(value) {
+  const raw = String(value || '').toLowerCase()
+  if (raw === 'queued') return '排队中'
+  if (raw === 'running') return '扫描中'
+  if (raw === 'completed') return '已完成'
+  return value || '--'
+}
+
+function statusTone(value) {
+  const raw = String(value || '').toLowerCase()
+  if (raw === 'completed') return 'safe'
+  if (raw === 'running' || raw === 'queued') return 'warning'
+  return 'neutral'
+}
+
+function verdictLabel(value) {
+  const raw = String(value || '').toLowerCase()
+  if (!raw) return '--'
+  if (raw === 'allow') return '正常'
+  if (raw === 'quarantine') return '可疑'
+  if (raw === 'block') return '恶意'
+  if (raw === 'error') return '错误'
+  return value
+}
+
+function verdictTone(value) {
+  const raw = String(value || '').toLowerCase()
+  if (raw === 'block' || raw === 'error') return 'danger'
+  if (raw === 'quarantine') return 'warning'
+  if (raw === 'allow') return 'safe'
+  return 'neutral'
+}
+
+function verdictDescription(value) {
+  const raw = String(value || '').toLowerCase()
+  if (raw === 'block') return '静态沙箱已判定该样本为恶意，建议阻断或隔离。'
+  if (raw === 'quarantine') return '样本命中高风险规则，建议进入隔离或人工复核。'
+  if (raw === 'allow') return '当前样本未命中高风险规则，静态扫描视角下为正常。'
+  if (raw === 'error') return '静态沙箱处理失败，需要查看错误信息或重新提交。'
+  return '等待静态沙箱返回结论。'
+}
 
 function onFileChange(event) {
   sampleFile.value = event.target.files?.[0] || null
@@ -57,12 +105,59 @@ function formatSize(bytes) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function compactDate(value) {
+  if (!value) return '--'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+  return parsed.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+async function loadHistory(selectId = '') {
+  historyLoading.value = true
+  try {
+    const response = await sandboxFetch('/analysis/jobs?limit=40')
+    const payload = await response.json()
+    historyItems.value = Array.isArray(payload.items) ? payload.items : []
+    if (selectId && historyItems.value.some((item) => item.job_id === selectId)) {
+      selectedJobId.value = selectId
+    } else if (!selectedJobId.value && historyItems.value.length) {
+      selectedJobId.value = historyItems.value[0].job_id
+    } else if (selectedJobId.value && !historyItems.value.some((item) => item.job_id === selectedJobId.value)) {
+      selectedJobId.value = historyItems.value[0]?.job_id || ''
+    }
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function openJob(jobId) {
+  selectedJobId.value = jobId
+  const response = await sandboxFetch(`/analysis/jobs/${jobId}`)
+  const payload = await response.json()
+  const index = historyItems.value.findIndex((item) => item.job_id === jobId)
+  if (index >= 0) {
+    historyItems.value[index] = payload
+  } else {
+    historyItems.value.unshift(payload)
+  }
+}
+
 async function pollJob(jobId) {
   const startedAt = Date.now()
   while (true) {
     const response = await sandboxFetch(`/analysis/jobs/${jobId}`)
     const payload = await response.json()
-    job.value = payload
+    const index = historyItems.value.findIndex((item) => item.job_id === jobId)
+    if (index >= 0) historyItems.value[index] = payload
+    else historyItems.value.unshift(payload)
+    selectedJobId.value = jobId
     if (['done', 'completed', 'succeeded', 'error'].includes(String(payload.status || '').toLowerCase())) {
       return payload
     }
@@ -76,7 +171,6 @@ async function pollJob(jobId) {
 async function submitScan() {
   actionError.value = ''
   actionMessage.value = ''
-  job.value = null
   if (!sampleFile.value) {
     actionError.value = '请先选择附件样本'
     return
@@ -93,28 +187,39 @@ async function submitScan() {
     })
     const payload = await response.json()
     const finalJob = await pollJob(payload.job_id)
-    actionMessage.value = ['error'].includes(String(finalJob.status || '').toLowerCase()) ? '任务已完成，但结果为 error' : '静态沙箱分析完成'
+    await loadHistory(payload.job_id)
+    actionMessage.value = finalJob.verdict === 'block'
+      ? '静态沙箱分析完成，样本已判定为恶意'
+      : finalJob.verdict === 'quarantine'
+        ? '静态沙箱分析完成，样本命中可疑规则'
+        : finalJob.verdict === 'allow'
+          ? '静态沙箱分析完成，当前样本判定为正常'
+          : '静态沙箱分析完成'
   } catch (error) {
     actionError.value = `提交失败: ${error.message}`
   } finally {
     running.value = false
   }
 }
+
+onMounted(() => {
+  loadHistory()
+})
 </script>
 
 <template>
   <section class="page">
     <header class="page-head">
       <h2>静态沙箱上传扫描</h2>
-      <p>直接向独立静态沙箱提交附件样本，查看规则命中、风险分和归一化类型。</p>
+      <p>直接向独立静态沙箱提交附件样本，查看规则命中、风险分、历史记录和恶意结论。</p>
     </header>
 
     <article class="panel page-banner-panel">
       <div class="page-banner">
         <div class="page-banner-copy">
           <span class="page-banner-kicker">Static Sandbox</span>
-          <h3>样本隔离与规则命中入口</h3>
-          <p>独立提交单个样本进行静态扫描，验证规则命中、风险分和归一化类型，不走邮件主流程。</p>
+          <h3>样本隔离、历史回看与规则命中</h3>
+          <p>独立提交单个样本进行静态扫描，支持回看最近任务、命中原因和裁决，不走邮件主流程。</p>
         </div>
         <div class="page-banner-icon sandbox">
           <svg viewBox="0 0 64 64" aria-hidden="true">
@@ -141,7 +246,7 @@ async function submitScan() {
           <div class="section-head">
             <div>
               <h3>静态样本上传台</h3>
-              <p>提交单个文件到独立沙箱，返回规则命中、风险分和归一化类型。</p>
+              <p>提交单个文件到独立沙箱，返回规则命中、风险分和恶意/可疑/正常结论。</p>
             </div>
           </div>
 
@@ -190,62 +295,122 @@ async function submitScan() {
               </div>
             </div>
             <ul class="evidence-list">
-              <li>结果来自规则命中和归一化类型映射。</li>
-              <li>规则详情可在“静态沙箱 / 规则管理”中查看。</li>
+              <li>结果来自规则命中、归一化类型和静态策略裁决。</li>
               <li>同一附件样本会按 SHA256 复用已有静态分析记录。</li>
-              <li>这里不会生成邮件分析历史记录。</li>
+              <li>左侧历史区会保留最近静态沙箱任务，可重复回看。</li>
             </ul>
           </section>
         </aside>
       </div>
     </article>
 
-    <article class="panel" v-if="job">
-      <div class="section-head">
-        <h3>扫描结果</h3>
-        <p>以下结果直接来自静态沙箱服务。</p>
-      </div>
+    <div class="split-layout url-console-layout">
+      <article class="panel">
+        <div class="list-head">
+          <h3>扫描历史</h3>
+          <p class="hint" v-if="historyLoading">加载中...</p>
+          <p class="hint" v-else>共 {{ historyItems.length }} 条</p>
+        </div>
 
-      <section class="summary-strip">
-        <article v-for="card in summaryCards" :key="card.label" class="summary-card">
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-        </article>
-      </section>
-
-      <div class="meta-grid">
-        <div>
-          <label>作业 ID</label>
-          <p>{{ job.job_id }}</p>
-        </div>
-        <div>
-          <label>规则版本</label>
-          <p>{{ job.rule_version || '--' }}</p>
-        </div>
-        <div>
-          <label>样本哈希</label>
-          <p>{{ job.sample_sha256 || '--' }}</p>
-        </div>
-        <div>
-          <label>来源</label>
-          <p>{{ job.source_id || '--' }}</p>
-        </div>
-      </div>
-
-      <section class="detail-section">
-        <h4>命中原因</h4>
-        <ul class="entity-list" v-if="job.reasons?.length">
-          <li v-for="reason in job.reasons" :key="reason" class="entity-card">
-            <p class="entity-summary">{{ reason }}</p>
+        <ul class="history-records url-history-list" v-if="historyItems.length">
+          <li v-for="item in historyItems" :key="item.job_id" class="history-item">
+            <article
+              class="history-select url-check-card"
+              :class="{ selected: selectedJobId === item.job_id }"
+              role="button"
+              tabindex="0"
+              @click="openJob(item.job_id)"
+            >
+              <div class="history-select-top">
+                <strong>{{ item.filename || item.sample_sha256 }}</strong>
+                <em class="badge" :class="verdictTone(item.verdict)">{{ verdictLabel(item.verdict) }}</em>
+              </div>
+              <div class="history-select-meta url-check-meta">
+                <span>{{ compactDate(item.updated_at || item.created_at) }}</span>
+                <span>{{ item.normalized_type || 'unknown' }}</span>
+              </div>
+              <div class="history-select-foot">
+                <span class="history-foot-label">{{ item.reasons?.length ? `${item.reasons.length} 个命中原因` : '无命中原因' }}</span>
+                <span class="badge neutral">{{ statusLabel(item.status) }}</span>
+              </div>
+            </article>
           </li>
         </ul>
-        <p v-else class="hint">当前结果没有返回命中原因。</p>
-      </section>
+        <p v-else class="hint">暂无静态沙箱历史记录</p>
+      </article>
 
-      <section class="detail-section">
-        <h4>产物</h4>
-        <pre class="raw-json">{{ JSON.stringify(job.artifacts || [], null, 2) }}</pre>
-      </section>
-    </article>
+      <article class="panel detail-panel">
+        <p v-if="!selectedJob" class="hint">从左侧选择一条静态沙箱记录查看详情</p>
+        <template v-else>
+          <div class="detail-head">
+            <div>
+              <h3>{{ selectedJob.filename || selectedJob.sample_sha256 }}</h3>
+              <p>{{ verdictDescription(selectedJob.verdict) }}</p>
+            </div>
+            <span class="badge" :class="verdictTone(selectedJob.verdict)">{{ verdictLabel(selectedJob.verdict) }}</span>
+          </div>
+
+          <section class="summary-strip">
+            <article v-for="card in summaryCards" :key="card.label" class="summary-card">
+              <span>{{ card.label }}</span>
+              <strong :class="card.tone">{{ card.value }}</strong>
+            </article>
+          </section>
+
+          <section class="detail-section">
+            <h4>基础信息</h4>
+            <div class="meta-grid">
+              <div>
+                <label>作业 ID</label>
+                <p>{{ selectedJob.job_id }}</p>
+              </div>
+              <div>
+                <label>规则版本</label>
+                <p>{{ selectedJob.rule_version || '--' }}</p>
+              </div>
+              <div>
+                <label>样本哈希</label>
+                <p>{{ selectedJob.sample_sha256 || '--' }}</p>
+              </div>
+              <div>
+                <label>来源</label>
+                <p>{{ selectedJob.source_id || '--' }}</p>
+              </div>
+              <div>
+                <label>创建时间</label>
+                <p>{{ compactDate(selectedJob.created_at) }}</p>
+              </div>
+              <div>
+                <label>更新时间</label>
+                <p>{{ compactDate(selectedJob.updated_at) }}</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <h4>命中原因</h4>
+            <ul class="entity-list" v-if="selectedJob.reasons?.length">
+              <li v-for="reason in selectedJob.reasons" :key="reason" class="entity-card">
+                <div class="entity-head">
+                  <strong>{{ reason }}</strong>
+                  <span class="badge" :class="verdictTone(selectedJob.verdict)">{{ verdictLabel(selectedJob.verdict) }}</span>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="hint">当前结果没有返回命中原因。</p>
+          </section>
+
+          <section class="detail-section">
+            <h4>产物</h4>
+            <pre class="raw-json">{{ JSON.stringify(selectedJob.artifacts || [], null, 2) }}</pre>
+          </section>
+
+          <section class="detail-section" v-if="selectedJob.error_message">
+            <h4>错误信息</h4>
+            <p class="error-text">{{ selectedJob.error_message }}</p>
+          </section>
+        </template>
+      </article>
+    </div>
   </section>
 </template>

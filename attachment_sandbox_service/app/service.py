@@ -160,6 +160,9 @@ class AnalysisService:
     async def get_job(self, job_id: str) -> JobRecord | None:
         return await self.repository.get_job(job_id)
 
+    async def list_jobs(self, limit: int = 50) -> list[JobRecord]:
+        return await self.repository.list_jobs(limit=limit)
+
     async def get_quarantine(self) -> list[dict]:
         return await self.repository.list_quarantine()
 

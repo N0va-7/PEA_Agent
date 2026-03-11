@@ -31,7 +31,7 @@
 - `legacy_word_logreg`
   - 复刻当前线上思路，作为 baseline。
 - `current_char_sgd_balanced`
-  - 类似当前 `retrain_models.py` 的字符级 TF-IDF + SGD。
+  - 类似当前主项目保留的字符级 URL 建模思路，但使用 SGD 作为更轻的对照组。
 - `char_tfidf_logreg`
   - 更稳的字符级 TF-IDF + LogisticRegression。
 - `hybrid_char_lex_logreg`
