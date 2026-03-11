@@ -40,11 +40,14 @@ def _seed_analysis(container, *, analysis_id: str, report_path: Path):
                 "sender": "s@example.com",
                 "recipient": "r@example.com",
                 "subject": analysis_id,
+                "parsed_email": {"message_id": f"m-{analysis_id}", "sender": "s@example.com", "recipient": "r@example.com", "subject": analysis_id, "attachments": []},
+                "url_extraction": {"normalized_urls": []},
+                "url_reputation": {"items": [], "high_risk_urls": [], "summary": "none"},
                 "url_analysis": {},
-                "body_analysis": {},
+                "content_review": {},
                 "attachment_analysis": {},
-                "final_decision": {"is_malicious": False},
-                "llm_report": f"# {analysis_id}",
+                "decision": {"verdict": "benign"},
+                "report_markdown": f"# {analysis_id}",
                 "report_path": str(report_path),
                 "execution_trace": [],
                 "created_at": datetime.now(timezone.utc),
@@ -121,4 +124,3 @@ def test_delete_single_and_clear_history(monkeypatch, tmp_path):
         assert int(feedback_left) == 0
     assert not r1.exists()
     assert not r2.exists()
-

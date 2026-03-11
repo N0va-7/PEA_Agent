@@ -4,9 +4,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import select
-
-from backend.models.tables import FusionTuningRun, SystemConfig
 from backend.workflow.state import EmailAnalysisState
 
 
@@ -46,32 +43,6 @@ def _latest_artifact(model_dir: Path, pattern: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _resolve_active_tuning_path(model_dir: Path, session_factory=None) -> Path | None:
-    if session_factory is None:
-        return None
-
-    try:
-        with session_factory() as db:
-            cfg = db.get(SystemConfig, "active_fusion_tuning_run_id")
-            if not cfg or not cfg.value:
-                return None
-            run = db.execute(
-                select(FusionTuningRun)
-                .where(FusionTuningRun.id == cfg.value)
-                .where(FusionTuningRun.status == "succeeded")
-                .limit(1)
-            ).scalar_one_or_none()
-            if not run or not run.result_json_path:
-                return None
-            path = Path(run.result_json_path)
-            if not path.exists():
-                fallback = model_dir / path.name
-                return fallback if fallback.exists() else None
-            return path
-    except Exception:
-        return None
-
-
 def _load_decision_config(model_dir: Path, session_factory=None) -> DecisionConfig:
     cfg = DecisionConfig()
     source_parts: list[str] = []
@@ -88,29 +59,6 @@ def _load_decision_config(model_dir: Path, session_factory=None) -> DecisionConf
             source=cfg.source,
         )
         source_parts.append(retrain_report.name)
-
-    fusion_tuning = _resolve_active_tuning_path(model_dir, session_factory=session_factory)
-    if fusion_tuning is None:
-        fusion_tuning = _latest_artifact(model_dir, "fusion_tuning*.json")
-    if fusion_tuning:
-        payload = _load_json(fusion_tuning)
-        best = payload.get("best", {}) if isinstance(payload, dict) else {}
-        w_url_base = _clip01(best.get("w_url_base"), cfg.w_url_base)
-        w_text_base = _clip01(best.get("w_text_base"), cfg.w_text_base)
-        total = w_url_base + w_text_base
-        if total <= 0:
-            w_url_base, w_text_base = cfg.w_url_base, cfg.w_text_base
-        else:
-            w_url_base /= total
-            w_text_base /= total
-        cfg = DecisionConfig(
-            w_url_base=w_url_base,
-            w_text_base=w_text_base,
-            fusion_threshold=_clip01(best.get("threshold"), cfg.fusion_threshold),
-            body_only_threshold=cfg.body_only_threshold,
-            source=cfg.source,
-        )
-        source_parts.append(fusion_tuning.name)
 
     source = ",".join(source_parts) if source_parts else "defaults"
     return DecisionConfig(
@@ -139,9 +87,13 @@ def make_analysis_node(model_dir: Path, session_factory=None):
     def analyze_email_data(state: EmailAnalysisState):
         cfg = _load_decision_config(model_dir, session_factory=session_factory)
         final_decision = {}
+        payload = state.get("payload_analysis", {}) or {}
+        payload_level = str(payload.get("level") or "none").lower()
+        payload_score = float(payload.get("score") or 0.0)
+        payload_summary = str(payload.get("summary") or "").strip()
 
         if state.get("attachments"):
-            if state["attachment_analysis"]["threat_level"] == "bad":
+            if state["attachment_analysis"]["threat_level"] == "malicious":
                 final_decision = {
                     "is_malicious": True,
                     "reason": "附件被检测为恶意",
@@ -156,11 +108,26 @@ def make_analysis_node(model_dir: Path, session_factory=None):
 
         final_decision["reason"] = final_decision.get("reason", "附件不存在")
 
+        if payload_level == "high":
+            final_decision = {
+                "is_malicious": True,
+                "reason": f"{final_decision['reason']}，主题或正文命中高危 payload 规则",
+                "score": max(0.99, payload_score),
+                "config_source": cfg.source,
+                "payload_summary": payload_summary,
+            }
+            return {
+                "final_decision": final_decision,
+                "execution_trace": state["execution_trace"] + ["analyze_email_data"],
+            }
+
         if not state.get("body"):
             final_decision["is_malicious"] = False
             final_decision["score"] = 0.0
             final_decision["reason"] += "，无正文，判定为正常"
             final_decision["config_source"] = cfg.source
+            if payload_summary:
+                final_decision["payload_summary"] = payload_summary
             return {
                 "final_decision": final_decision,
                 "execution_trace": state["execution_trace"] + ["analyze_email_data"],
@@ -174,6 +141,8 @@ def make_analysis_node(model_dir: Path, session_factory=None):
             )
             final_decision["score"] = phishing_score
             final_decision["config_source"] = cfg.source
+            if payload_summary:
+                final_decision["payload_summary"] = payload_summary
             if phishing_score > cfg.fusion_threshold:
                 final_decision["is_malicious"] = True
                 final_decision["reason"] += "，正文和URL综合评分较高，判定为恶意"
@@ -195,6 +164,8 @@ def make_analysis_node(model_dir: Path, session_factory=None):
             final_decision["score"] = body_score
             final_decision["reason"] += "，无URL且正文评分较低，判定为正常"
         final_decision["config_source"] = cfg.source
+        if payload_summary:
+            final_decision["payload_summary"] = payload_summary
 
         return {
             "final_decision": final_decision,

@@ -7,10 +7,10 @@
 1. 数据库：MySQL（`DATABASE_URL`）
 2. 队列：Redis（`JOB_QUEUE_BACKEND=redis`）
 
-### 1.2 开发常用
+### 1.2 当前默认开发方式
 
-1. 数据库：SQLite（`DATABASE_URL` 为空时自动回退）
-2. 队列：memory
+1. 数据库：MySQL
+2. 队列：Redis
 
 ## 2. 必填配置项
 
@@ -33,6 +33,7 @@
 
 ```bash
 ./backend/scripts/bootstrap_py311.sh
+docker compose up -d mysql redis
 cp backend/.env.example backend/.env
 ./.py311/bin/alembic -c backend/alembic.ini upgrade head
 ./.py311/bin/uvicorn backend.main:app --reload
@@ -45,9 +46,15 @@ npm run dev
 ## 5. MySQL + Redis 示例
 
 ```env
-DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/pea_agent
+DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/pea_agent?charset=utf8mb4
 JOB_QUEUE_BACKEND=redis
 REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+对应基础设施可直接用根目录 `docker-compose.yml` 启动：
+
+```bash
+docker compose up -d mysql redis
 ```
 
 ## 6. 安全点

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { loginApi } from '../api'
-import { saveApiBase, setSession } from '../session'
+import { DEFAULT_API, saveApiBase, setSession } from '../session'
 
 const router = useRouter()
 const username = ref('admin')
@@ -15,7 +15,7 @@ async function handleLogin() {
   errorText.value = ''
   loading.value = true
   try {
-    saveApiBase(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000')
+    saveApiBase(DEFAULT_API)
     const payload = await loginApi(username.value, password.value)
     setSession(payload.access_token, Number(payload.expires_in || 0))
     await router.replace('/app/overview')

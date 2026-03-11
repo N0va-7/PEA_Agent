@@ -4,6 +4,7 @@ from pathlib import Path
 import joblib
 
 from backend.workflow.state import EmailAnalysisState
+from backend.workflow.nodes.model_output import extract_binary_probabilities
 
 
 @lru_cache(maxsize=1)
@@ -28,9 +29,14 @@ def make_body_reputation_node(model_dir: Path):
                 "Please run with the original training sklearn version (1.2.2) or retrain/export model under current runtime."
             ) from exc
 
+        phishing_probability, legitimate_probability = extract_binary_probabilities(
+            model,
+            prediction,
+            positive_markers=("phishing", "bad", "malicious"),
+        )
         body_analysis = {
-            "phishing_probability": float(prediction[0]),
-            "legitimate_probability": float(prediction[1]),
+            "phishing_probability": phishing_probability,
+            "legitimate_probability": legitimate_probability,
             "source": "model",
         }
 

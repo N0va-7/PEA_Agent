@@ -11,18 +11,13 @@ class EmailAnalysisState(TypedDict):
     report_path: str
     created_at: str
 
-    sender: str
-    recipient: str
-    subject: str
-    body: str
-    urls: List[str]
-    attachments: List[Dict[str, Any]]
-
+    parsed_email: Optional[Dict[str, Any]]
+    url_extraction: Optional[Dict[str, Any]]
+    url_reputation: Optional[Dict[str, Any]]
     url_analysis: Optional[Dict[str, Any]]
-    body_analysis: Optional[Dict[str, Any]]
+    content_review: Optional[Dict[str, Any]]
     attachment_analysis: Optional[Dict[str, Any]]
-
-    final_decision: Optional[Dict[str, Any]]
-    llm_report: Optional[str]
+    decision: Optional[Dict[str, Any]]
+    report: Optional[Dict[str, Any]]
 
     execution_trace: List[str]

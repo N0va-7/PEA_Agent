@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-03-09T08:57:02.690862+00:00",
+  "source": "body_url_training_lab_manual_promotion",
+  "text_model": {
+    "name": "word_char_tfidf_logreg",
+    "selected_threshold": 0.5,
+    "test_metrics": {
+      "precision": 0.9524229074889868,
+      "recall": 0.9863138686131386,
+      "f1": 0.9690721649484536,
+      "fpr": 0.031783402001177165,
+      "auc_roc": 0.99679019002161,
+      "auc_pr": 0.9937482938489437
+    },
+    "artifact_path": "ml/artifacts/phishing_body.pkl"
+  },
+  "url_model": {
+    "name": "char_tfidf_logreg",
+    "selected_threshold": 0.5,
+    "test_metrics": {
+      "precision": 0.9796580447172293,
+      "recall": 0.9523931296083195,
+      "f1": 0.9658332072698983,
+      "fpr": 0.007872546191825447,
+      "auc_roc": 0.9972566287700946,
+      "auc_pr": 0.9943534088517759
+    },
+    "artifact_path": "ml/artifacts/phishing_url.pkl"
+  },
+  "recommended_backend": {
+    "body_only_threshold": 0.5,
+    "fusion_threshold_hint": 0.79,
+    "notes": "Keep existing fusion_tuning_latest.json as the active fusion configuration until enough real labeled business data is collected for re-tuning."
+  }
+}

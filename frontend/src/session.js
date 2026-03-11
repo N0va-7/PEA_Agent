@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 
 export const TOKEN_KEY = 'pea_agent_access_token'
 export const API_KEY = 'pea_agent_api_base_url'
-export const DEFAULT_API = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+export const DEFAULT_API = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8010'
 
 function safeStorageGet(key) {
   try {

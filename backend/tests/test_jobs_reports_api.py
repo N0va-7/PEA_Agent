@@ -56,12 +56,12 @@ def test_jobs_status_contains_progress_events(monkeypatch, tmp_path):
             {
                 'type': 'stage_done',
                 'status': 'running',
-                'stage': 'parse_eml_file',
-                'stage_label': 'EML 解析',
-                'message': '执行完成：EML 解析',
+                'stage': 'email_parser',
+                'stage_label': '邮件解析',
+                'message': '执行完成：邮件解析',
                 'at': datetime.now(timezone.utc).isoformat(),
             },
-            current_stage='parse_eml_file',
+            current_stage='email_parser',
         )
 
     with TestClient(app) as client:
@@ -70,7 +70,7 @@ def test_jobs_status_contains_progress_events(monkeypatch, tmp_path):
         assert res.status_code == 200
         payload = res.json()
         assert payload['id'] == 'job-1'
-        assert payload['current_stage'] == 'parse_eml_file'
+        assert payload['current_stage'] == 'email_parser'
         assert len(payload['progress_events']) >= 2
 
 
@@ -95,11 +95,14 @@ def test_reports_download_stream(monkeypatch, tmp_path):
                 'sender': 's@example.com',
                 'recipient': 'r@example.com',
                 'subject': 'subject',
+                'parsed_email': {'message_id': 'm1', 'sender': 's@example.com', 'recipient': 'r@example.com', 'subject': 'subject', 'attachments': []},
+                'url_extraction': {'normalized_urls': []},
+                'url_reputation': {'items': [], 'high_risk_urls': [], 'summary': 'none'},
                 'url_analysis': {},
-                'body_analysis': {},
+                'content_review': {},
                 'attachment_analysis': {},
-                'final_decision': {'is_malicious': False},
-                'llm_report': '# report-a1',
+                'decision': {'verdict': 'benign'},
+                'report_markdown': '# report-a1',
                 'report_path': str(report_path),
                 'execution_trace': [],
                 'created_at': datetime.now(timezone.utc),

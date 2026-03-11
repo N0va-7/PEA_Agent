@@ -27,7 +27,7 @@ def create_engine_and_session(db_path: Path | None = None, db_url: str | None = 
         effective_url,
         **kwargs,
     )
-    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, expire_on_commit=False)
     return engine, session_factory
 
 

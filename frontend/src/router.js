@@ -4,8 +4,10 @@ import AppLayout from './views/AppLayout.vue'
 import HistoryView from './views/HistoryView.vue'
 import LoginView from './views/LoginView.vue'
 import OverviewView from './views/OverviewView.vue'
-import TuningView from './views/TuningView.vue'
+import StaticRulesView from './views/StaticRulesView.vue'
+import StaticSandboxView from './views/StaticSandboxView.vue'
 import UploadView from './views/UploadView.vue'
+import UrlRiskView from './views/UrlRiskView.vue'
 import { isAuthed } from './session'
 
 const routes = [
@@ -19,13 +21,16 @@ const routes = [
       { path: '', redirect: '/app/overview' },
       { path: 'overview', name: 'overview', component: OverviewView },
       { path: 'upload', name: 'upload', component: UploadView },
+      { path: 'url-risk', name: 'url-risk', component: UrlRiskView },
       { path: 'history', name: 'history', component: HistoryView },
       { path: 'history/:analysisId', name: 'history-detail', component: HistoryView },
-      { path: 'tuning', name: 'tuning', component: TuningView },
+      { path: 'static-sandbox', name: 'static-sandbox', component: StaticSandboxView },
+      { path: 'static-rules', name: 'static-rules', component: StaticRulesView },
     ],
   },
   { path: '/dashboard', redirect: '/app/overview' },
   { path: '/analyses/:analysisId', redirect: (to) => `/app/history/${to.params.analysisId}` },
+  { path: '/app/tuning', redirect: '/app/overview' },
 ]
 
 const router = createRouter({

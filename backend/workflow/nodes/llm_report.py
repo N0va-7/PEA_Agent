@@ -75,6 +75,8 @@ def _extract_json_payload(content: str) -> dict:
 
 
 def _request_structured_sections(llm, state: EmailAnalysisState) -> dict:
+    if llm is None:
+        return {}
     prompt = f"""
 你是企业邮件安全分析师。请严格输出 JSON，不要输出 Markdown、不要输出多余解释。
 所有字段必须使用简体中文，不要夹杂英文句子。
@@ -90,7 +92,7 @@ def _request_structured_sections(llm, state: EmailAnalysisState) -> dict:
 - 发件人: {state.get('sender', '')}
 - 收件人: {state.get('recipient', '')}
 - URL分析: {state.get('url_analysis', {})}
-- 正文分析: {state.get('body_analysis', {})}
+- LLM内容复核: {state.get('llm_content_review', {})}
 - 附件分析: {state.get('attachment_analysis', {})}
 - 最终判定: {state.get('final_decision', {})}
 """
@@ -126,15 +128,13 @@ def _normalize_risk_level(raw_value: str, *, malicious: bool | None, score: floa
 def _default_summary(
     *,
     verdict: str,
-    score: float,
-    body_prob: float,
     url_prob: float,
     reason: str,
     risk_level: str,
 ) -> str:
     base = (
         f"系统综合正文、URL与附件信号后，当前邮件风险等级评估为{risk_level}，判定结果为{verdict}。"
-        f"综合评分为{score:.4f}，正文钓鱼概率为{body_prob:.4f}，URL钓鱼概率为{url_prob:.4f}。"
+        f"URL钓鱼概率为{url_prob:.4f}。"
     )
     if reason:
         base += f"核心判定理由为：{reason}。"
@@ -147,12 +147,28 @@ def _default_summary(
     return base
 
 
-def _default_indicators(*, body_prob: float, url_prob: float, attachment_level: str, reason: str) -> list[str]:
+def _default_indicators(
+    *,
+    llm_verdict: str,
+    url_prob: float,
+    attachment_level: str,
+    reason: str,
+    whitelist_sender: str,
+    blacklist_sender: str,
+    blacklist_domain: str,
+) -> list[str]:
+    attachment_label = _attachment_label(attachment_level)
     indicators = [
-        f"正文模型给出钓鱼概率 {body_prob:.4f}，需关注社工诱导内容。",
+        f"内容复核结论为 {llm_verdict or 'unknown'}。",
         f"URL模型给出最高风险概率 {url_prob:.4f}，需核验链接指向与域名信誉。",
-        f"附件威胁等级判定为 {attachment_level}，建议确认是否存在可执行载荷。",
+        f"附件状态为 {attachment_label}。",
     ]
+    if blacklist_sender:
+        indicators.append(f"发件人命中系统黑名单：{blacklist_sender}。")
+    if blacklist_domain:
+        indicators.append(f"发件域命中系统黑名单：{blacklist_domain}。")
+    if whitelist_sender:
+        indicators.append(f"发件人命中精确白名单：{whitelist_sender}。")
     if reason:
         indicators.append(f"综合决策节点给出的判定依据：{reason}。")
     return indicators
@@ -182,16 +198,36 @@ def _default_recommendations(verdict: str) -> list[str]:
     ]
 
 
+def _attachment_label(value: str) -> str:
+    level = str(value or "").lower()
+    if level == "malicious":
+        return "恶意"
+    if level == "suspicious":
+        return "可疑"
+    if level == "no_attachment":
+        return "无附件"
+    if level == "unknown":
+        return "未知"
+    return level or "未知"
+
+
 def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
     final = state.get("final_decision", {}) or {}
     attach = state.get("attachment_analysis", {}) or {}
-    body = state.get("body_analysis", {}) or {}
+    review = state.get("llm_content_review", {}) or {}
     url = state.get("url_analysis", {}) or {}
 
     malicious = final.get("is_malicious")
-    verdict = "恶意" if malicious is True else ("正常" if malicious is False else "未判定")
+    final_verdict = str(final.get("verdict") or "").lower()
+    if final_verdict == "suspicious":
+        verdict = "可疑"
+    elif malicious is True:
+        verdict = "恶意"
+    elif malicious is False:
+        verdict = "正常"
+    else:
+        verdict = "未判定"
     score = _as_float(final.get("score"), 0.0)
-    body_prob = _as_float(body.get("phishing_probability"), 0.0)
     url_prob = _as_float(url.get("max_possibility"), 0.0)
     reason = str(final.get("reason") or "").strip()
     risk_level = _normalize_risk_level(str(enrich.get("risk_level") or ""), malicious=malicious, score=score)
@@ -199,8 +235,6 @@ def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
         str(enrich.get("summary") or "").strip(),
         _default_summary(
             verdict=verdict,
-            score=score,
-            body_prob=body_prob,
             url_prob=url_prob,
             reason=reason,
             risk_level=risk_level,
@@ -210,17 +244,24 @@ def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
     key_indicators = _ensure_zh_list(
         _safe_list(enrich.get("key_indicators")),
         _default_indicators(
-            body_prob=body_prob,
+            llm_verdict=str(review.get("verdict", "unknown")),
             url_prob=url_prob,
             attachment_level=str(attach.get("threat_level", "unknown")),
             reason=reason,
+            whitelist_sender=str(final.get("whitelist_sender") or ""),
+            blacklist_sender=str(final.get("blacklist_sender") or ""),
+            blacklist_domain=str(final.get("blacklist_domain") or ""),
         ),
     )
+    llm_evidence = _safe_list(review.get("evidence"))
+    if llm_evidence:
+        key_indicators = list(dict.fromkeys(llm_evidence + key_indicators))
 
     recommendations = _ensure_zh_list(
         _safe_list(enrich.get("recommendations")),
         _default_recommendations(verdict),
     )
+    attachment_label = _attachment_label(str(attach.get("threat_level", "unknown")))
 
     url_items = [k for k in url.keys() if k != "max_possibility"]
     url_preview = "；".join(url_items[:5]) if url_items else "未提取到可供展示的URL样本"
@@ -234,10 +275,13 @@ def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
     )
 
     model_snapshot = {
-        "body_phishing_probability": round(body_prob, 6),
         "url_max_probability": round(url_prob, 6),
-        "attachment_threat_level": attach.get("threat_level", "unknown"),
-        "final_score": round(score, 6),
+        "llm_content_verdict": review.get("verdict", "unknown"),
+        "llm_content_attack_types": review.get("attack_types", []),
+        "attachment_threat_level": attachment_label,
+        "whitelist_sender": final.get("whitelist_sender"),
+        "blacklist_sender": final.get("blacklist_sender"),
+        "blacklist_domain": final.get("blacklist_domain"),
         "config_source": final.get("config_source"),
     }
     snapshot_text = json.dumps(model_snapshot, ensure_ascii=False, indent=2)
@@ -258,10 +302,9 @@ def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
         "| --- | --- |\n"
         f"| 判定结果 | {verdict} |\n"
         f"| 风险等级 | {risk_level} |\n"
-        f"| 综合评分 | {score:.4f} |\n"
-        f"| 正文钓鱼概率 | {body_prob:.4f} |\n"
+        f"| 内容复核结论 | {review.get('verdict', 'unknown')} |\n"
         f"| URL钓鱼概率 | {url_prob:.4f} |\n"
-        f"| 附件威胁等级 | {attach.get('threat_level', 'unknown')} |\n\n"
+        f"| 附件状态 | {attachment_label} |\n\n"
         "## 4. 关键证据与判定依据\n"
         f"{indicators_md}\n\n"
         "### 4.1 URL样本概览\n"
@@ -280,7 +323,7 @@ def _build_fixed_markdown(state: EmailAnalysisState, enrich: dict) -> str:
 
 
 
-def make_llm_report_node(llm):
+def make_llm_report_node(llm, *, stage_name: str = "llm_report"):
     def llm_report(state: EmailAnalysisState):
         enrich = {}
         try:
@@ -291,7 +334,7 @@ def make_llm_report_node(llm):
 
         return {
             "llm_report": report,
-            "execution_trace": state["execution_trace"] + ["llm_report"],
+            "execution_trace": state["execution_trace"] + [stage_name],
         }
 
     return llm_report

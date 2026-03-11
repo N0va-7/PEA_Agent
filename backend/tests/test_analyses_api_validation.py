@@ -85,11 +85,14 @@ def test_list_analyses_pagination_and_sort(monkeypatch, tmp_path):
                 'sender': 'z@example.com',
                 'recipient': 'r@example.com',
                 'subject': 'Subject Z',
+                'parsed_email': {'message_id': 'm1', 'sender': 'z@example.com', 'recipient': 'r@example.com', 'subject': 'Subject Z', 'attachments': []},
+                'url_extraction': {'normalized_urls': ['https://z.example.com']},
+                'url_reputation': {'items': [], 'high_risk_urls': [], 'summary': 'none'},
                 'url_analysis': {},
-                'body_analysis': {},
+                'content_review': {},
                 'attachment_analysis': {},
-                'final_decision': {'is_malicious': True},
-                'llm_report': '# r1',
+                'decision': {'verdict': 'malicious'},
+                'report_markdown': '# r1',
                 'report_path': str(reports_dir / 'r1.md'),
                 'execution_trace': [],
                 'created_at': datetime(2026, 2, 21, 9, 0, tzinfo=timezone.utc),
@@ -104,11 +107,14 @@ def test_list_analyses_pagination_and_sort(monkeypatch, tmp_path):
                 'sender': 'a@example.com',
                 'recipient': 'r@example.com',
                 'subject': 'Subject A',
+                'parsed_email': {'message_id': 'm2', 'sender': 'a@example.com', 'recipient': 'r@example.com', 'subject': 'Subject A', 'attachments': []},
+                'url_extraction': {'normalized_urls': ['https://a.example.com']},
+                'url_reputation': {'items': [], 'high_risk_urls': [], 'summary': 'none'},
                 'url_analysis': {},
-                'body_analysis': {},
+                'content_review': {},
                 'attachment_analysis': {},
-                'final_decision': {'is_malicious': False},
-                'llm_report': '# r2',
+                'decision': {'verdict': 'benign'},
+                'report_markdown': '# r2',
                 'report_path': str(reports_dir / 'r2.md'),
                 'execution_trace': [],
                 'created_at': datetime(2026, 2, 21, 10, 0, tzinfo=timezone.utc),
@@ -127,3 +133,5 @@ def test_list_analyses_pagination_and_sort(monkeypatch, tmp_path):
         assert payload['sort_order'] == 'asc'
         assert len(payload['items']) == 1
         assert payload['items'][0]['id'] == 'a2'
+        assert payload['items'][0]['email']['subject'] == 'Subject A'
+        assert 'body_analysis' not in payload['items'][0]

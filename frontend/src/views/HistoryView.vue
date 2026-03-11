@@ -8,13 +8,7 @@ import { clearSession } from '../session'
 
 const route = useRoute()
 const router = useRouter()
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  breaks: true,
-  typographer: true,
-})
-md.enable(['table', 'strikethrough'])
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 const senderFilter = ref('')
 const subjectFilter = ref('')
@@ -34,45 +28,89 @@ const total = ref(0)
 const selectedAnalysisId = ref('')
 const detailLoading = ref(false)
 const analysis = ref(null)
-const reportText = ref('')
-const reportName = ref('')
-const reportAvailable = ref(false)
-const activeTab = ref('overview')
 const feedbackLabel = ref('')
 const feedbackNote = ref('')
 const feedbackSaving = ref(false)
-const feedbackHistoryLoading = ref(false)
-const feedbackHistory = ref([])
 const feedbackMessage = ref('')
 const feedbackError = ref('')
+const activeReportSection = ref('')
+const activeDetailTab = ref('overview')
 
-const finalDecision = computed(() => analysis.value?.final_decision || {})
-const bodyProb = computed(() => Number(analysis.value?.body_analysis?.phishing_probability || 0))
-const urlProb = computed(() => Number(analysis.value?.url_analysis?.max_possibility || 0))
-const attachThreat = computed(() => analysis.value?.attachment_analysis?.threat_level || 'unknown')
-function normalizeMarkdown(raw) {
-  let text = String(raw || '').replace(/\r\n?/g, '\n').trim()
-  if (!text) return ''
-
-  // Auto-close unmatched fenced code block to avoid markdown parser drift.
-  const fenceMatches = text.match(/(^|\n)```/g)
-  if ((fenceMatches?.length || 0) % 2 === 1) {
-    text += '\n```'
-  }
-  return text
-}
-
-const reportHtml = computed(() => {
-  const normalized = normalizeMarkdown(reportText.value)
-  if (!normalized) return ''
-  try {
-    return md.render(normalized)
-  } catch {
-    const escaped = md.utils.escapeHtml(normalized)
-    return `<pre>${escaped}</pre>`
-  }
-})
 const pageCount = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize.value)))
+const email = computed(() => analysis.value?.email || {})
+const outputs = computed(() => analysis.value?.tool_outputs || {})
+const decision = computed(() => analysis.value?.decision || {})
+const report = computed(() => analysis.value?.report || {})
+const urlItems = computed(() => outputs.value?.url_reputation?.items || [])
+const contentReview = computed(() => outputs.value?.content_review || {})
+const attachmentItems = computed(() => outputs.value?.attachment_analysis?.items || [])
+const decisionTrace = computed(() => decision.value?.decision_trace || [])
+const outputCards = computed(() => [
+  {
+    label: 'URL',
+    value: outputs.value?.url_extraction?.normalized_urls?.length || 0,
+    tone: urlItems.value.some((item) => item?.is_high_risk) ? 'danger' : 'neutral',
+  },
+  {
+    label: 'VT 高危',
+    value: vtHighRiskUrls.value.length,
+    tone: vtHighRiskUrls.value.length ? 'danger' : 'safe',
+  },
+  {
+    label: '内容分',
+    value: formatScore(contentReview.value?.score, 2),
+    tone: verdictClass(contentReview.value?.verdict),
+  },
+  {
+    label: '决策分',
+    value: formatScore(decision.value?.score, 4),
+    tone: verdictClass(decision.value?.verdict),
+  },
+])
+const vtShortCircuit = computed(() => {
+  if (decision.value?.primary_risk_source === 'vt_url_reputation') return true
+  return decisionTrace.value.some((item) => item?.source === 'decision_engine' && item?.mode === 'short_circuit_vt_url')
+})
+const vtHighRiskUrls = computed(() => outputs.value?.url_reputation?.high_risk_urls || [])
+
+const reportSections = computed(() => {
+  const markdown = String(report.value?.markdown || '').trim()
+  if (!markdown) return []
+
+  const normalized = markdown.replace(/\r\n/g, '\n')
+  const parts = normalized.split(/\n(?=##\s+)/g).filter(Boolean)
+  const sections = []
+
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const titleMatch = trimmed.match(/^##\s+(.+)$/m)
+    const title = titleMatch ? titleMatch[1].trim() : '报告'
+    const id = title
+      .toLowerCase()
+      .replace(/[^\w\u4e00-\u9fff]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    sections.push({
+      id: id || `section-${sections.length + 1}`,
+      title,
+      html: md.render(trimmed),
+    })
+  }
+
+  if (!sections.length) {
+    sections.push({
+      id: 'report',
+      title: '报告',
+      html: md.render(normalized),
+    })
+  }
+  return sections
+})
+
+const currentReportSection = computed(() => {
+  if (!reportSections.value.length) return null
+  return reportSections.value.find((item) => item.id === activeReportSection.value) || reportSections.value[0]
+})
 
 function formatDate(value) {
   if (!value) return '--'
@@ -81,37 +119,94 @@ function formatDate(value) {
   return dt.toLocaleString()
 }
 
-function getVerdict(item) {
-  const flag = item?.final_decision?.is_malicious
-  if (flag === true) return '恶意'
-  if (flag === false) return '正常'
+function compactDate(value) {
+  if (!value) return '--'
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+}
+
+function truncate(text, max = 48) {
+  const raw = String(text || '')
+  return raw.length > max ? `${raw.slice(0, max)}...` : raw || '--'
+}
+
+function formatScore(value, digits = 4) {
+  if (value === null || value === undefined || value === '') return '--'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return String(value)
+  return num.toFixed(digits).replace(/\.?0+$/, '')
+}
+
+function verdictLabel(verdict) {
+  const value = String(verdict || '').toLowerCase()
+  if (value === 'malicious') return '恶意'
+  if (value === 'suspicious') return '可疑'
+  if (value === 'benign') return '正常'
   return '未判定'
 }
 
-function getVerdictClass(item) {
-  const flag = item?.final_decision?.is_malicious
-  if (flag === true) return 'danger'
-  if (flag === false) return 'safe'
+function verdictClass(verdict) {
+  const value = String(verdict || '').toLowerCase()
+  if (value === 'malicious') return 'danger'
+  if (value === 'suspicious') return 'warning'
+  if (value === 'benign') return 'safe'
   return 'neutral'
 }
 
-function getReviewLabel(item) {
-  const label = item?.review_label
-  if (label === 'malicious') return '已标恶意'
-  if (label === 'benign') return '已标正常'
-  return '未反馈'
+function sourceLabel(source) {
+  const value = String(source || '')
+  return {
+    url_reputation_vt: 'VT URL 信誉',
+    url_model_analysis: 'URL 模型',
+    content_review: '正文内容复核',
+    attachment_sandbox: '附件沙箱',
+    decision_engine: '决策引擎',
+  }[value] || value || '--'
 }
 
-function getReviewLabelClass(item) {
-  const label = item?.review_label
-  if (label === 'malicious') return 'danger'
-  if (label === 'benign') return 'safe'
-  return 'neutral'
+function modeLabel(mode) {
+  const value = String(mode || '')
+  return {
+    short_circuit_vt_url: 'VT 高危短路',
+    short_circuit_attachment: '附件恶意短路',
+    content_strong_evidence: '内容强证据',
+    url_model_high: 'URL 高分',
+    content_malicious_soft: '内容偏恶意',
+    content_suspicious: '内容可疑',
+    attachment_suspicious: '附件可疑',
+    baseline: '基线判断',
+  }[value] || value
 }
 
-function truncate(text, max = 42) {
-  if (!text) return '--'
-  return text.length > max ? `${text.slice(0, max)}...` : text
+function riskLevelLabel(level) {
+  const value = String(level || '').toLowerCase()
+  if (value === 'high') return '高危'
+  if (value === 'medium') return '中危'
+  if (value === 'low') return '低危'
+  return '未知'
+}
+
+function traceSummary(item) {
+  if (!item || typeof item !== 'object') return []
+  const parts = []
+  if (item.mode) parts.push(modeLabel(item.mode))
+  if (item.verdict) parts.push(`结论 ${verdictLabel(item.verdict)}`)
+  if (item.score !== undefined) parts.push(`分数 ${formatScore(item.score, 4)}`)
+  if (Array.isArray(item.cache_sources) && item.cache_sources.length) parts.push(`缓存 ${item.cache_sources.join(', ')}`)
+  if (Array.isArray(item.high_risk_urls) && item.high_risk_urls.length) parts.push(`高危 URL ${item.high_risk_urls.length}`)
+  return parts
+}
+
+function itemMetaList(item) {
+  const items = []
+  if (Array.isArray(item?.categories)) items.push(...item.categories)
+  if (Array.isArray(item?.tags)) items.push(...item.tags)
+  return items.filter(Boolean)
+}
+
+function selectReportSection(sectionId) {
+  activeReportSection.value = sectionId
 }
 
 function toIsoOrEmpty(value) {
@@ -120,19 +215,10 @@ function toIsoOrEmpty(value) {
   return Number.isNaN(dt.getTime()) ? '' : dt.toISOString()
 }
 
-const timelineEvents = computed(() => {
-  const trace = analysis.value?.execution_trace || []
-  return trace.map((stage, idx) => ({
-    at: `步骤 ${idx + 1}`,
-    message: String(stage),
-  }))
-})
-
 async function loadHistory({ resetPage = false } = {}) {
   historyLoading.value = true
   historyError.value = ''
   if (resetPage) page.value = 1
-
   try {
     const params = new URLSearchParams({
       page: String(page.value),
@@ -162,66 +248,23 @@ async function loadHistory({ resetPage = false } = {}) {
   }
 }
 
-async function getAnalysis(analysisId) {
-  const response = await apiFetch(`/api/v1/analyses/${analysisId}`)
-  return await response.json()
-}
-
-async function getReport(analysisId) {
-  const response = await apiFetch(`/api/v1/reports/${analysisId}`)
-  const blob = await response.blob()
-  const text = await blob.text()
-  let filename = `report_${analysisId}.md`
-  const cd = response.headers.get('content-disposition') || ''
-  if (cd.includes('filename=')) {
-    filename = cd.split('filename=')[1].replaceAll('"', '').trim()
-  }
-  return { text, filename }
-}
-
-async function getFeedbackHistory(analysisId) {
-  const response = await apiFetch(`/api/v1/analyses/${analysisId}/feedback-history`)
-  return await response.json()
-}
-
 async function openAnalysis(analysisId, { updateRoute = true } = {}) {
   if (!analysisId) return
-  selectedAnalysisId.value = analysisId
-  feedbackMessage.value = ''
-  feedbackError.value = ''
-  historyError.value = ''
   detailLoading.value = true
-  feedbackHistoryLoading.value = true
-  reportText.value = ''
-  reportName.value = ''
-  reportAvailable.value = false
+  historyError.value = ''
+  feedbackError.value = ''
+  feedbackMessage.value = ''
   try {
     if (updateRoute && route.params.analysisId !== analysisId) {
       await router.push(`/app/history/${analysisId}`)
     }
-    const [analysisResult, reportResult, feedbackResult] = await Promise.allSettled([
-      getAnalysis(analysisId),
-      getReport(analysisId),
-      getFeedbackHistory(analysisId),
-    ])
-    if (analysisResult.status !== 'fulfilled') {
-      throw analysisResult.reason
-    }
-    const analysisPayload = analysisResult.value
-    analysis.value = analysisPayload
-    if (reportResult.status === 'fulfilled') {
-      reportText.value = reportResult.value.text
-      reportName.value = reportResult.value.filename
-      reportAvailable.value = true
-    } else {
-      reportText.value = '> 报告暂不可用，请检查报告路径或重新生成分析。'
-      reportName.value = ''
-      reportAvailable.value = false
-    }
-    feedbackLabel.value = analysisPayload.review_label || ''
-    feedbackNote.value = analysisPayload.review_note || ''
-    feedbackHistory.value =
-      feedbackResult.status === 'fulfilled' && Array.isArray(feedbackResult.value) ? feedbackResult.value : []
+    const response = await apiFetch(`/api/v1/analyses/${analysisId}`)
+    const payload = await response.json()
+    analysis.value = payload
+    selectedAnalysisId.value = analysisId
+    activeDetailTab.value = 'overview'
+    feedbackLabel.value = payload.review_label || ''
+    feedbackNote.value = payload.review_note || ''
   } catch (error) {
     historyError.value = `读取分析详情失败: ${error.message}`
     if (isAuthError(error)) {
@@ -230,110 +273,32 @@ async function openAnalysis(analysisId, { updateRoute = true } = {}) {
     }
   } finally {
     detailLoading.value = false
-    feedbackHistoryLoading.value = false
   }
 }
 
-async function deleteAnalysis(analysisId) {
-  if (!analysisId) return
-  historyError.value = ''
-  historyMessage.value = ''
-  if (!window.confirm(`确认删除该记录（${analysisId}）？`)) {
-    return
-  }
-  try {
-    const res = await apiFetch(`/api/v1/analyses/${analysisId}`, { method: 'DELETE' })
-    const payload = await res.json()
-    historyMessage.value = `已删除 ${payload.deleted_count || 0} 条记录。`
-
-    if (selectedAnalysisId.value === analysisId) {
-      selectedAnalysisId.value = ''
-      analysis.value = null
-      reportText.value = ''
-      reportName.value = ''
-      reportAvailable.value = false
-      feedbackHistory.value = []
-      if (route.params.analysisId === analysisId) {
-        await router.push('/app/history')
-      }
-    }
-    await loadHistory()
-  } catch (error) {
-    historyError.value = `删除失败: ${error.message}`
-    if (isAuthError(error)) {
-      clearSession()
-      await router.replace('/login')
-    }
-  }
-}
-
-async function clearAllHistory() {
-  historyError.value = ''
-  historyMessage.value = ''
-  if (!window.confirm('确认清空全部历史记录？该操作不可撤销。')) {
-    return
-  }
-  try {
-    const res = await apiFetch('/api/v1/analyses', { method: 'DELETE' })
-    const payload = await res.json()
-    historyMessage.value = `已清空 ${payload.deleted_count || 0} 条记录。`
-    selectedAnalysisId.value = ''
-    analysis.value = null
-    reportText.value = ''
-    reportName.value = ''
-    reportAvailable.value = false
-    feedbackHistory.value = []
-    if (route.params.analysisId) {
-      await router.push('/app/history')
-    }
-    await loadHistory({ resetPage: true })
-  } catch (error) {
-    historyError.value = `清空失败: ${error.message}`
-    if (isAuthError(error)) {
-      clearSession()
-      await router.replace('/login')
-    }
-  }
-}
-
-async function submitFeedback() {
-  if (!analysis.value?.id) return
+async function saveFeedback() {
+  if (!selectedAnalysisId.value) return
+  feedbackSaving.value = true
   feedbackMessage.value = ''
   feedbackError.value = ''
-  if (!feedbackLabel.value) {
-    feedbackError.value = '请选择反馈标签后再提交。'
-    return
-  }
-  feedbackSaving.value = true
   try {
-    const response = await apiFetch(`/api/v1/analyses/${analysis.value.id}/feedback`, {
+    const response = await apiFetch(`/api/v1/analyses/${selectedAnalysisId.value}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        review_label: feedbackLabel.value,
-        review_note: feedbackNote.value?.trim() || null,
+        review_label: feedbackLabel.value || null,
+        review_note: feedbackNote.value || null,
       }),
     })
     const payload = await response.json()
-    analysis.value = {
-      ...analysis.value,
-      review_label: payload.review_label,
-      review_note: payload.review_note,
-      reviewed_by: payload.reviewed_by,
-      reviewed_at: payload.reviewed_at,
+    feedbackMessage.value = '反馈已保存'
+    if (analysis.value) {
+      analysis.value.review_label = payload.review_label
+      analysis.value.review_note = payload.review_note
+      analysis.value.reviewed_by = payload.reviewed_by
+      analysis.value.reviewed_at = payload.reviewed_at
     }
-    feedbackMessage.value = '反馈已保存。'
-    feedbackHistory.value = await getFeedbackHistory(analysis.value.id)
-    const idx = historyItems.value.findIndex((item) => item.id === analysis.value.id)
-    if (idx >= 0) {
-      historyItems.value[idx] = {
-        ...historyItems.value[idx],
-        review_label: payload.review_label,
-        review_note: payload.review_note,
-        reviewed_by: payload.reviewed_by,
-        reviewed_at: payload.reviewed_at,
-      }
-    }
+    await loadHistory()
   } catch (error) {
     feedbackError.value = `保存反馈失败: ${error.message}`
     if (isAuthError(error)) {
@@ -345,48 +310,51 @@ async function submitFeedback() {
   }
 }
 
-async function applyFilters() {
-  await loadHistory({ resetPage: true })
-}
-
-async function changePage(delta) {
-  const next = page.value + delta
-  if (next < 1 || next > pageCount.value) return
-  page.value = next
-  await loadHistory()
-}
-
-function resetFilters() {
-  senderFilter.value = ''
-  subjectFilter.value = ''
-  createdFrom.value = ''
-  createdTo.value = ''
-  sortBy.value = 'created_at'
-  sortOrder.value = 'desc'
-  pageSize.value = 10
-  loadHistory({ resetPage: true })
-}
-
-function downloadReport() {
-  if (!reportText.value) return
-  const blob = new Blob([reportText.value], { type: 'text/markdown' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = reportName.value || 'report.md'
-  a.click()
-  URL.revokeObjectURL(url)
+async function deleteAnalysis(analysisId) {
+  if (!analysisId) return
+  if (!window.confirm(`确认删除该记录（${analysisId}）？`)) return
+  historyError.value = ''
+  historyMessage.value = ''
+  try {
+    const response = await apiFetch(`/api/v1/analyses/${analysisId}`, { method: 'DELETE' })
+    const payload = await response.json()
+    historyMessage.value = `已删除 ${payload.deleted_count || 0} 条记录。`
+    if (selectedAnalysisId.value === analysisId) {
+      selectedAnalysisId.value = ''
+      analysis.value = null
+      await router.push('/app/history')
+    }
+    await loadHistory()
+  } catch (error) {
+    historyError.value = `删除失败: ${error.message}`
+  }
 }
 
 watch(
   () => route.params.analysisId,
-  async (id) => {
-    if (!id) return
-    const analysisId = String(id)
-    if (analysisId === selectedAnalysisId.value && analysis.value) return
-    await openAnalysis(analysisId, { updateRoute: false })
+  async (analysisId) => {
+    if (typeof analysisId === 'string' && analysisId) {
+      await openAnalysis(analysisId, { updateRoute: false })
+    } else {
+      selectedAnalysisId.value = ''
+      analysis.value = null
+    }
   },
-  { immediate: true },
+  { immediate: true }
+)
+
+watch(
+  reportSections,
+  (sections) => {
+    if (!sections.length) {
+      activeReportSection.value = ''
+      return
+    }
+    if (!sections.some((item) => item.id === activeReportSection.value)) {
+      activeReportSection.value = sections[0].id
+    }
+  },
+  { immediate: true }
 )
 
 onMounted(async () => {
@@ -397,187 +365,250 @@ onMounted(async () => {
 <template>
   <section class="page">
     <header class="page-head">
-      <h2>历史分析结果</h2>
-      <p>按时间、主题、发件人检索，查看详细分析报告</p>
+      <h2>历史记录</h2>
+      <p>查看 URL 信誉、内容复核、附件结果和最终决策。</p>
     </header>
 
-    <div class="history-layout">
+    <div class="panel">
+      <div class="filters-row">
+        <input v-model="senderFilter" placeholder="筛选发件人" />
+        <input v-model="subjectFilter" placeholder="筛选主题" />
+        <input v-model="createdFrom" type="datetime-local" />
+        <input v-model="createdTo" type="datetime-local" />
+        <button @click="loadHistory({ resetPage: true })">查询</button>
+      </div>
+      <p v-if="historyMessage" class="success-text">{{ historyMessage }}</p>
+      <p v-if="historyError" class="error-text">{{ historyError }}</p>
+    </div>
+
+    <div class="split-layout">
       <article class="panel">
-        <div class="card-head">
-          <h3>筛选与列表</h3>
-          <div class="filter-actions">
-            <button class="ghost small" @click="loadHistory()">刷新</button>
-            <button class="ghost small" @click="clearAllHistory">清空历史</button>
-          </div>
+        <div class="list-head">
+          <h3>分析列表</h3>
+          <p class="hint" v-if="historyLoading">加载中...</p>
         </div>
-
-        <div class="filters">
-          <input v-model="subjectFilter" placeholder="按主题过滤" />
-          <input v-model="senderFilter" placeholder="按发件人过滤" />
-          <div class="row">
-            <input v-model="createdFrom" type="datetime-local" />
-            <input v-model="createdTo" type="datetime-local" />
-          </div>
-          <div class="row">
-            <select v-model="sortBy">
-              <option value="created_at">创建时间</option>
-              <option value="sender">发件人</option>
-              <option value="subject">主题</option>
-            </select>
-            <select v-model="sortOrder">
-              <option value="desc">降序</option>
-              <option value="asc">升序</option>
-            </select>
-            <select v-model.number="pageSize">
-              <option :value="10">10/页</option>
-              <option :value="20">20/页</option>
-              <option :value="50">50/页</option>
-            </select>
-          </div>
-          <div class="filter-actions">
-            <button class="ghost small" @click="applyFilters">查询</button>
-            <button class="ghost small" @click="resetFilters">重置筛选</button>
-          </div>
-        </div>
-
-        <p v-if="historyLoading" class="hint">历史记录加载中...</p>
-        <p v-if="historyError" class="error-text">{{ historyError }}</p>
-        <p v-if="historyMessage" class="success-text">{{ historyMessage }}</p>
-
-        <ul v-if="historyItems.length" class="history-list">
-          <li
-            v-for="item in historyItems"
-            :key="item.id"
-            :class="{ active: selectedAnalysisId === item.id }"
-            @click="openAnalysis(item.id)"
-          >
-            <div class="history-top">
-              <strong>{{ truncate(item.subject, 30) }}</strong>
-              <div class="badge-group">
-                <span class="badge" :class="getReviewLabelClass(item)">{{ getReviewLabel(item) }}</span>
-                <span class="badge" :class="getVerdictClass(item)">{{ getVerdict(item) }}</span>
+        <ul class="history-records" v-if="historyItems.length">
+          <li v-for="item in historyItems" :key="item.id" class="history-item">
+            <article
+              class="history-select"
+              :class="{ selected: selectedAnalysisId === item.id }"
+              role="button"
+              tabindex="0"
+              @click="openAnalysis(item.id)"
+            >
+              <div class="history-select-top">
+                <strong>{{ item.email?.subject || '--' }}</strong>
+                <em class="badge" :class="verdictClass(item.decision?.verdict)">{{ verdictLabel(item.decision?.verdict) }}</em>
               </div>
-            </div>
-            <div class="history-meta">
-              <span>{{ truncate(item.sender, 24) }}</span>
-              <span>{{ formatDate(item.created_at) }}</span>
-            </div>
-            <div class="history-actions">
-              <button class="ghost small danger-action" @click.stop="deleteAnalysis(item.id)">删除</button>
-            </div>
+              <div class="history-select-meta">
+                <span>{{ compactDate(item.created_at) }}</span>
+                <span>{{ item.email?.sender || '--' }}</span>
+              </div>
+              <div class="history-select-foot">
+                <span class="history-foot-label">邮件分析</span>
+                <button class="ghost small history-delete" @click.stop="deleteAnalysis(item.id)">删除</button>
+              </div>
+            </article>
           </li>
         </ul>
         <p v-else-if="!historyLoading" class="hint">暂无历史记录</p>
 
         <div class="pagination">
-          <span>共 {{ total }} 条 / 第 {{ page }} / {{ pageCount }} 页</span>
-          <div class="pager-actions">
-            <button class="ghost small" :disabled="page <= 1" @click="changePage(-1)">上一页</button>
-            <button class="ghost small" :disabled="page >= pageCount" @click="changePage(1)">下一页</button>
-          </div>
+          <button class="ghost small" :disabled="page <= 1" @click="page -= 1; loadHistory()">上一页</button>
+          <span>{{ page }} / {{ pageCount }}</span>
+          <button class="ghost small" :disabled="page >= pageCount" @click="page += 1; loadHistory()">下一页</button>
         </div>
       </article>
 
-      <article class="panel">
-        <div class="card-head">
-          <h3>分析详情</h3>
-          <button class="ghost small" :disabled="!reportAvailable" @click="downloadReport">下载报告</button>
-        </div>
-        <div class="tabs">
-          <button class="ghost small" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">概览</button>
-          <button class="ghost small" :class="{ active: activeTab === 'report' }" @click="activeTab = 'report'">报告</button>
-          <button class="ghost small" :class="{ active: activeTab === 'raw' }" @click="activeTab = 'raw'">原始数据</button>
-        </div>
-
-        <div v-if="detailLoading" class="hint">正在加载详情...</div>
-        <template v-else-if="analysis">
-          <template v-if="activeTab === 'overview'">
-            <div class="metrics compact">
-              <div class="metric">
-                <span>最终判定</span>
-                <strong :class="getVerdictClass(analysis)">{{ getVerdict(analysis) }}</strong>
-              </div>
-              <div class="metric">
-                <span>综合分数</span>
-                <strong>{{ Number(finalDecision.score || 0).toFixed(3) }}</strong>
-              </div>
-              <div class="metric">
-                <span>正文钓鱼概率</span>
-                <strong>{{ (bodyProb * 100).toFixed(2) }}%</strong>
-              </div>
-              <div class="metric">
-                <span>URL钓鱼概率</span>
-                <strong>{{ (urlProb * 100).toFixed(2) }}%</strong>
-              </div>
-              <div class="metric">
-                <span>附件威胁</span>
-                <strong>{{ attachThreat }}</strong>
-              </div>
+      <article class="panel detail-panel">
+        <p v-if="detailLoading" class="hint">加载详情中...</p>
+        <p v-else-if="!analysis" class="hint">从左侧选择一条分析记录查看详情</p>
+        <template v-else>
+          <div class="detail-head">
+            <div>
+              <h3>{{ email.subject || '--' }}</h3>
+              <p>{{ email.sender || '--' }} → {{ email.recipient || '--' }}</p>
             </div>
-            <div class="meta-grid">
-              <div><label>分析ID</label><p>{{ analysis.id }}</p></div>
-              <div><label>发件人</label><p>{{ analysis.sender || '--' }}</p></div>
-              <div><label>收件人</label><p>{{ analysis.recipient || '--' }}</p></div>
-              <div><label>主题</label><p>{{ analysis.subject || '--' }}</p></div>
-              <div><label>创建时间</label><p>{{ formatDate(analysis.created_at) }}</p></div>
-              <div><label>反馈标签</label><p>{{ getReviewLabel(analysis) }}</p></div>
-              <div><label>反馈人</label><p>{{ analysis.reviewed_by || '--' }}</p></div>
-              <div><label>反馈时间</label><p>{{ formatDate(analysis.reviewed_at) }}</p></div>
-            </div>
+            <span class="badge" :class="verdictClass(decision.verdict)">{{ verdictLabel(decision.verdict) }}</span>
+          </div>
 
-            <h4>人工反馈</h4>
-            <div class="feedback-editor">
-              <div class="row">
-                <select v-model="feedbackLabel">
-                  <option value="">请选择标签</option>
-                  <option value="malicious">恶意</option>
-                  <option value="benign">正常</option>
-                </select>
-                <button class="ghost small" :disabled="feedbackSaving" @click="submitFeedback">
-                  {{ feedbackSaving ? '保存中...' : '保存反馈' }}
-                </button>
+          <section class="summary-strip">
+            <article v-for="card in outputCards" :key="card.label" class="summary-card">
+              <span>{{ card.label }}</span>
+              <strong :class="card.tone">{{ card.value }}</strong>
+            </article>
+          </section>
+
+          <div class="detail-tabs">
+            <button class="ghost small" :class="{ active: activeDetailTab === 'overview' }" @click="activeDetailTab = 'overview'">概览</button>
+            <button class="ghost small" :class="{ active: activeDetailTab === 'signals' }" @click="activeDetailTab = 'signals'">信号详情</button>
+            <button class="ghost small" :class="{ active: activeDetailTab === 'decision' }" @click="activeDetailTab = 'decision'">决策与反馈</button>
+            <button class="ghost small" :class="{ active: activeDetailTab === 'report' }" @click="activeDetailTab = 'report'">分段报告</button>
+          </div>
+
+          <template v-if="activeDetailTab === 'overview'">
+            <section class="detail-section">
+              <h4>邮件概览</h4>
+              <div class="meta-grid">
+                <div>
+                  <label>Message-ID</label>
+                  <p>{{ email.message_id || '--' }}</p>
+                </div>
+                <div>
+                  <label>URL 数量</label>
+                  <p>{{ outputs.url_extraction?.normalized_urls?.length || 0 }}</p>
+                </div>
+                <div>
+                  <label>附件数量</label>
+                  <p>{{ email.attachments?.length || 0 }}</p>
+                </div>
+                <div>
+                  <label>分析时间</label>
+                  <p>{{ formatDate(analysis.created_at) }}</p>
+                </div>
               </div>
-              <textarea
-                v-model="feedbackNote"
-                rows="3"
-                placeholder="可选：补充判断依据（例如误报原因、业务背景）"
-              />
-              <p v-if="feedbackMessage" class="success-text">{{ feedbackMessage }}</p>
-              <p v-if="feedbackError" class="error-text">{{ feedbackError }}</p>
-            </div>
+            </section>
 
-            <h4>反馈历史</h4>
-            <p v-if="feedbackHistoryLoading" class="hint">反馈历史加载中...</p>
-            <ul v-else-if="feedbackHistory.length" class="timeline feedback-timeline">
-              <li v-for="event in feedbackHistory" :key="event.id">
-                <span>{{ formatDate(event.changed_at) }} / {{ event.changed_by }}</span>
-                <strong>
-                  {{ event.old_review_label || '未标注' }} -> {{ event.new_review_label || '未标注' }}
-                </strong>
-                <p v-if="event.new_review_note">{{ event.new_review_note }}</p>
-              </li>
-            </ul>
-            <p v-else class="hint">暂无反馈历史</p>
-
-            <h4>执行轨迹</h4>
-            <ul class="timeline" v-if="timelineEvents.length">
-              <li v-for="(event, idx) in timelineEvents" :key="`${event.at}-${idx}`">
-                <span>{{ event.at }}</span>
-                <strong>{{ event.message }}</strong>
-              </li>
-            </ul>
-            <p v-else class="hint">无执行轨迹</p>
+            <section class="detail-section">
+              <h4>关键结论</h4>
+              <ul class="evidence-list" v-if="decision.reasons?.length">
+                <li v-for="reason in decision.reasons" :key="reason">{{ reason }}</li>
+              </ul>
+              <p v-else class="hint">当前记录没有额外决策原因。</p>
+            </section>
           </template>
 
-          <template v-else-if="activeTab === 'report'">
-            <article class="report markdown-body" v-html="reportHtml"></article>
+          <template v-else-if="activeDetailTab === 'signals'">
+            <section class="detail-section">
+              <h4>URL 提取与 VT 信誉</h4>
+              <p class="hint">{{ outputs.url_reputation?.summary || '暂无 URL 信誉摘要' }}</p>
+              <div v-if="vtShortCircuit" class="vt-alert">
+                <strong>VT 直接触发恶意</strong>
+                <p>
+                  VirusTotal 已将
+                  <span v-if="vtHighRiskUrls.length">{{ vtHighRiskUrls[0] }}</span>
+                  <span v-else>该 URL</span>
+                  标记为高危，系统已按短路规则直接判定为恶意。
+                </p>
+              </div>
+              <ul class="entity-list" v-if="urlItems.length">
+                <li v-for="item in urlItems" :key="item.url" class="entity-card">
+                  <div class="entity-head">
+                    <strong>{{ item.url }}</strong>
+                    <span class="badge" :class="item.is_high_risk ? 'danger' : verdictClass(item.risk_level === 'medium' ? 'suspicious' : item.risk_level === 'low' ? 'benign' : '')">
+                      {{ item.is_high_risk ? '直接触发恶意' : riskLevelLabel(item.risk_level) }}
+                    </span>
+                  </div>
+                  <div class="entity-meta">
+                    <span>cache={{ item.cache_status || '--' }}</span>
+                    <span>malicious={{ item.last_analysis_stats?.malicious || 0 }}</span>
+                    <span>suspicious={{ item.last_analysis_stats?.suspicious || 0 }}</span>
+                  </div>
+                  <p class="entity-summary">{{ item.summary || '--' }}</p>
+                  <div v-if="itemMetaList(item).length" class="chip-row">
+                    <span v-for="tag in itemMetaList(item)" :key="`${item.url}-${tag}`" class="chip">{{ tag }}</span>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="detail-section">
+              <h4>正文内容复核</h4>
+              <p><strong>结论：</strong>{{ verdictLabel(contentReview.verdict) }}</p>
+              <p><strong>分数：</strong>{{ contentReview.score ?? '--' }}</p>
+              <ul class="evidence-list" v-if="contentReview.reasons?.length">
+                <li v-for="reason in contentReview.reasons" :key="reason">{{ reason }}</li>
+              </ul>
+            </section>
+
+            <section class="detail-section">
+              <h4>附件沙箱</h4>
+              <p class="hint">{{ outputs.attachment_analysis?.summary || '暂无附件信息' }}</p>
+              <ul class="entity-list" v-if="attachmentItems.length">
+                <li v-for="item in attachmentItems" :key="item.filename" class="entity-card">
+                  <div class="entity-head">
+                    <strong>{{ item.filename }}</strong>
+                    <span class="badge" :class="verdictClass(item.verdict)">{{ verdictLabel(item.verdict) }}</span>
+                  </div>
+                  <div class="entity-meta">
+                    <span>分数 {{ formatScore(item.score, 4) }}</span>
+                    <span v-if="item.artifacts?.length">产物 {{ item.artifacts.length }}</span>
+                  </div>
+                  <p class="entity-summary">{{ item.summary || '--' }}</p>
+                </li>
+              </ul>
+            </section>
+          </template>
+
+          <template v-else-if="activeDetailTab === 'decision'">
+            <section class="detail-section">
+              <h4>最终决策</h4>
+              <p v-if="vtShortCircuit" class="vt-short-circuit-text">当前结论由 VT 高危 URL 直接触发。</p>
+              <div class="meta-grid">
+                <div>
+                  <label>主风险源</label>
+                  <p>{{ decision.primary_risk_source || '--' }}</p>
+                </div>
+                <div>
+                  <label>风险分</label>
+                  <p>{{ decision.score ?? '--' }}</p>
+                </div>
+                <div>
+                  <label>处置建议</label>
+                  <p>{{ decision.recommended_action || '--' }}</p>
+                </div>
+              </div>
+              <ul class="trace-list" v-if="decisionTrace.length">
+                <li v-for="(item, idx) in decisionTrace" :key="`${item.source}-${idx}`">
+                  <div class="trace-head">
+                    <span>{{ sourceLabel(item.source) }}</span>
+                    <strong>{{ item.mode ? modeLabel(item.mode) : verdictLabel(item.verdict) }}</strong>
+                  </div>
+                  <p class="trace-summary" v-if="traceSummary(item).length">{{ traceSummary(item).join(' · ') }}</p>
+                  <div class="chip-row" v-if="Array.isArray(item.high_risk_urls) && item.high_risk_urls.length">
+                    <span v-for="url in item.high_risk_urls" :key="`${item.source}-${url}`" class="chip danger-chip">{{ url }}</span>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <section class="detail-section">
+              <h4>人工反馈</h4>
+              <div class="filters-row">
+                <select v-model="feedbackLabel">
+                  <option value="">未反馈</option>
+                  <option value="malicious">标记恶意</option>
+                  <option value="benign">标记正常</option>
+                </select>
+                <input v-model="feedbackNote" placeholder="补充备注" />
+                <button :disabled="feedbackSaving" @click="saveFeedback">{{ feedbackSaving ? '保存中...' : '保存反馈' }}</button>
+              </div>
+              <p v-if="feedbackMessage" class="success-text">{{ feedbackMessage }}</p>
+              <p v-if="feedbackError" class="error-text">{{ feedbackError }}</p>
+            </section>
           </template>
 
           <template v-else>
-            <pre class="raw-json">{{ JSON.stringify(analysis, null, 2) }}</pre>
+            <section class="detail-section">
+              <h4>报告输出</h4>
+              <div v-if="reportSections.length" class="report-layout">
+                <aside class="report-nav">
+                  <button
+                    v-for="section in reportSections"
+                    :key="section.id"
+                    class="report-nav-item"
+                    :class="{ active: currentReportSection?.id === section.id }"
+                    @click="selectReportSection(section.id)"
+                  >
+                    {{ section.title }}
+                  </button>
+                </aside>
+                <div class="markdown-body report-surface" v-if="currentReportSection" v-html="currentReportSection.html"></div>
+              </div>
+              <p v-else class="hint">暂无报告内容</p>
+            </section>
           </template>
         </template>
-        <div v-else class="empty-state">请先从左侧选择一条历史记录。</div>
       </article>
     </div>
   </section>

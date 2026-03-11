@@ -1,119 +1,22 @@
-import email
-import re
-from email.header import decode_header
-from email.utils import parseaddr
-from pathlib import Path
-from time import time
-
+from backend.agent_tools.email_parser import make_email_parser_tool
 from backend.infra.config import Settings
 from backend.workflow.state import EmailAnalysisState
 
 
-
-def _decode_str(s):
-    if not s:
-        return ""
-    try:
-        value, charset = decode_header(s)[0]
-        if isinstance(value, bytes):
-            return value.decode(charset or "utf-8", errors="ignore")
-        if isinstance(value, str):
-            return value
-    except Exception:
-        return s
-    return s
-
-
-
-def _get_body(msg):
-    if msg.is_multipart():
-        for part in msg.get_payload():
-            body = _get_body(part)
-            if body:
-                return body.strip()
-    else:
-        content_type = msg.get_content_type()
-        if content_type in ["text/plain", "text/html"]:
-            charset = msg.get_content_charset() or "utf-8"
-            payload = msg.get_payload(decode=True)
-            if payload:
-                return payload.decode(charset, errors="ignore").strip()
-    return ""
-
-
-def _cleanup_old_uploads(upload_dir: Path, retention_hours: int, max_delete: int = 100):
-    cutoff = time() - max(1, retention_hours) * 3600
-    deleted = 0
-    for file_path in upload_dir.iterdir():
-        if deleted >= max_delete:
-            break
-        if not file_path.is_file():
-            continue
-        if file_path.name.startswith(".gitkeep"):
-            continue
-        try:
-            if file_path.stat().st_mtime < cutoff:
-                file_path.unlink(missing_ok=True)
-                deleted += 1
-        except Exception:
-            continue
-
-
-
 def make_parse_eml_node(settings: Settings):
-    upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    tool = make_email_parser_tool(settings)
 
-    def parse_eml_file(state: EmailAnalysisState):
-        _cleanup_old_uploads(upload_dir, settings.upload_retention_hours)
-        if not state.get("raw_eml_content"):
-            return {
-                "execution_trace": state["execution_trace"] + ["parse_eml_error"],
+    def email_parser(state: EmailAnalysisState):
+        parsed_email = tool.run(
+            {
+                "raw_eml_content": state.get("raw_eml_content"),
+                "analysis_id": state.get("analysis_id"),
             }
-
-        msg = email.message_from_bytes(state["raw_eml_content"])
-
-        from_addr = _decode_str(parseaddr(msg.get("From") or "")[1])
-        to_addr = _decode_str(parseaddr(msg.get("To") or "")[1])
-        subject = _decode_str(msg.get("Subject") or "")
-        body = _get_body(msg)
-
-        attachments = []
-        for idx, part in enumerate(msg.walk()):
-            filename = part.get_filename()
-            if not filename:
-                continue
-            filename = _decode_str(filename)
-            payload = part.get_payload(decode=True)
-            if not payload:
-                continue
-
-            base_name = Path(filename).name
-            base_name = re.sub(r"[^A-Za-z0-9._-]", "_", base_name)
-            if not base_name:
-                base_name = f"attachment_{idx}.bin"
-
-            safe_name = f"{state['analysis_id']}_{idx}_{base_name}"
-            file_path = upload_dir / safe_name
-            with open(file_path, "wb") as f:
-                f.write(payload)
-
-            attachments.append(
-                {
-                    "filename": filename,
-                    "stored_path": str(file_path),
-                    "content_type": part.get_content_type(),
-                    "size": len(payload),
-                }
-            )
-
+        ).get("parsed_email", {})
         return {
-            "sender": str(from_addr),
-            "recipient": str(to_addr),
-            "subject": str(subject),
-            "body": str(body),
-            "attachments": attachments,
-            "execution_trace": state["execution_trace"] + ["parse_eml_file"],
+            "message_id": str(parsed_email.get("message_id") or state.get("message_id") or ""),
+            "parsed_email": parsed_email,
+            "execution_trace": state["execution_trace"] + ["email_parser"],
         }
 
-    return parse_eml_file
+    return email_parser

@@ -1,69 +1,163 @@
 # PEA Agent
 
-PEA Agent 是一个面向 `.eml` 邮件的钓鱼分析系统。
+PEA Agent 是一个邮件与链接安全分析控制台。
 
-它做 6 件事：
+当前仓库已经重构成两层：
 
-1. 上传邮件并异步分析。
-2. 解析正文、链接、附件。
-3. 输出最终恶意/正常判定分数。
-4. 生成固定结构的中文 Markdown 报告。
-5. 允许人工打标（`malicious` / `benign`）。
-6. 基于已打标样本手动运行融合调参，并手动激活新版本。
+1. `backend/agent_tools`
+   统一工具层，负责邮件解析、URL 提取、VT URL 信誉、URL 模型分析、正文复核、附件沙箱、决策和报告生成。
+2. `backend/workflow`
+   Agent 编排层，负责串起工具、命中缓存、持久化结果。
 
-## 先看这个（避免误解）
+同时提供三类前端分析入口：
 
-1. 当前系统里的“调参”是融合层参数调优，不是自动重训基础模型。
-2. `ml/training/retrain_models.py` 是离线重训脚本，不会被后端自动调用。
-3. 当前线上推理直接读取 `ml/artifacts/phishing_body.pkl` 与 `ml/artifacts/phishing_url.pkl`。
-4. 这两个现有产物实际是：
-   - 正文：`TfidfVectorizer + RandomForestClassifier`
-   - URL：`CountVectorizer + LogisticRegression`
-5. 生产部署推荐 `MySQL + Redis`；开发可用 `SQLite + memory queue`。
+1. 邮件上传分析
+2. 独立 URL 风险分析
+3. 独立静态沙箱扫描
+
+## 当前能力
+
+- 邮件 `.eml` 上传分析
+- VirusTotal URL 信誉查询
+- URL 模型风险评分
+- 正文内容复核
+- 附件静态沙箱接入 `Eml_Agent`
+- 最终决策与 Markdown 报告输出
+- 历史记录、人工反馈、规则管理
+- 独立 URL 检查台
+
+## 缓存与复用
+
+系统默认会复用已分析记录，避免重复消耗外部配额和重复扫描：
+
+- 邮件分析：按 `message_id / fingerprint` 命中历史记录
+- URL 检查：按归一化 URL 命中 `url_analyses`
+- VT URL 查询：按归一化 URL 命中 `vt_url_cache`
+- 附件静态沙箱：按样本 `SHA256` 命中 `Eml_Agent` 缓存
+
+## 目录
+
+```text
+backend/
+  agent_tools/          核心分析工具
+  api/                  FastAPI 路由
+  models/               SQLAlchemy 表结构
+  repositories/         持久化访问层
+  schemas/              API schema
+  services/             工作流与任务服务
+  workflow/             Agent workflow 编排
+  alembic/              数据库迁移
+
+frontend/
+  src/views/            控制台页面
+  src/api.js            前端 API 客户端
+
+Eml_Agent/
+  独立静态附件沙箱
+```
+
+## 技术栈
+
+- Backend: FastAPI, SQLAlchemy, Alembic
+- Frontend: Vue 3, Vite
+- Database: MySQL
+- Queue/Cache: Redis
+- External intel: VirusTotal URL API
+- Attachment sandbox: 独立 `Eml_Agent`
 
 ## 快速启动
 
-```bash
-./backend/scripts/bootstrap_py311.sh
-cp backend/.env.example backend/.env
-./.py311/bin/alembic -c backend/alembic.ini upgrade head
-./.py311/bin/uvicorn backend.main:app --reload
+### 1. 基础设施
 
-cd frontend
-npm install
-npm run dev
+```bash
+docker compose up -d mysql redis
 ```
 
-## 文档入口
+默认地址：
 
-1. 主文档：`/Users/qwx/dev/code/PEA_Agent/docs/project_handbook.md`
-2. 总览与范围：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/00_overview_and_scope.md`
-3. 系统架构：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/01_system_architecture.md`
-4. 工作流与决策：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/02_workflow_and_decision_engine.md`
-5. 模型训练与反馈调参：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/03_model_training_and_feedback_tuning.md`
-6. 数据表与 API：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/04_data_schema_and_api_contract.md`
-7. 部署、安全、运维：`/Users/qwx/dev/code/PEA_Agent/docs/handbook/05_deployment_security_observability.md`
-8. 训练专题：`/Users/qwx/dev/code/PEA_Agent/docs/model_training_handbook.md`
-9. 调参需求与执行约束：`/Users/qwx/dev/code/PEA_Agent/docs/feedback_tuning_requirements.md`
+- MySQL: `127.0.0.1:3306`
+- Redis: `127.0.0.1:6379`
 
-## 当前运行依赖的产物
+### 2. 后端
 
-1. `ml/artifacts/phishing_body.pkl`
-2. `ml/artifacts/phishing_url.pkl`
-3. `ml/artifacts/fusion_tuning*.json`（有激活版本时覆盖默认融合参数）
+```bash
+cp backend/.env.example backend/.env
+./.py311/bin/alembic -c backend/alembic.ini upgrade head
+./.py311/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8010 --reload
+```
+
+### 3. 前端
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+### 4. 静态沙箱
+
+按 `Eml_Agent/README.md` 启动独立服务，默认使用：
+
+- `http://127.0.0.1:8000`
+
+## 关键环境变量
+
+`backend/.env` 至少需要这些配置：
+
+```env
+DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/pea_agent?charset=utf8mb4
+REDIS_URL=redis://127.0.0.1:6379/0
+JOB_QUEUE_BACKEND=redis
+
+JWT_SECRET_KEY=replace-me
+AUTH_USERNAME=admin
+AUTH_PASSWORD_HASH=...
+
+VT_ENABLED=true
+VT_API_KEY=...
+VT_BASE_URL=https://www.virustotal.com/api/v3
+VT_PUBLIC_MODE=true
+VT_CACHE_TTL_HOURS=24
+VT_MIN_INTERVAL_SECONDS=15
+VT_DAILY_BUDGET=500
+
+ATTACHMENT_SANDBOX_BASE_URL=http://127.0.0.1:8000
+```
+
+## 主要页面
+
+- `/app/upload` 邮件上传分析
+- `/app/url-risk` URL 风险分析
+- `/app/history` 邮件分析历史
+- `/app/static-sandbox` 静态沙箱上传扫描
+- `/app/static-rules` 静态沙箱规则管理
+
+## 主要接口
+
+- `POST /api/v1/analyses` 创建邮件分析任务
+- `GET /api/v1/jobs/{job_id}` 查看任务进度
+- `GET /api/v1/analyses/{analysis_id}` 查看邮件分析详情
+- `POST /api/v1/url-checks` 创建独立 URL 风险分析
+- `GET /api/v1/url-checks` 查看 URL 历史
+- `GET /api/v1/url-checks/{id}` 查看 URL 详情
 
 ## 测试
 
 后端：
 
 ```bash
-./.py311/bin/python -m pytest backend/tests -q
+./.py311/bin/pytest backend/tests -q
 ```
 
 前端：
 
 ```bash
 cd frontend
-npm run test:unit
 npm run build
 ```
+
+## 说明
+
+- `VT URL` 明确高危时，决策层会直接短路为恶意
+- URL 页面只开放前端入口，不在前端暴露 VT API Key
+- 当前仓库仍保留部分旧工作流节点与历史文档，未全部清理；已经脱离主链的前端遗留页面已删除

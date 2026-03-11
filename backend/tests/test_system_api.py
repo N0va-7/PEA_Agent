@@ -51,3 +51,115 @@ def test_safe_info_helpers_hide_password_in_display():
     redis_info = _safe_redis_info("redis://user:secret-pass@127.0.0.1:6379/2", "redis")
     assert redis_info["has_password"] is True
     assert "secret-pass" not in redis_info["display"]
+
+
+def test_sender_whitelist_roundtrip(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        headers = _auth_headers(client)
+
+        initial = client.get("/api/v1/system/sender-whitelist", headers=headers)
+        assert initial.status_code == 200
+        assert initial.json()["domains"] == []
+
+        updated = client.put(
+            "/api/v1/system/sender-whitelist",
+            json={"domains": ["Alerts@example.com", "bad-value", "alerts@example.com"]},
+            headers=headers,
+        )
+        assert updated.status_code == 200
+        assert updated.json()["domains"] == ["alerts@example.com"]
+
+        fetched = client.get("/api/v1/system/sender-whitelist", headers=headers)
+        assert fetched.status_code == 200
+        assert fetched.json()["domains"] == ["alerts@example.com"]
+
+
+def test_domain_blacklist_roundtrip(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        headers = _auth_headers(client)
+
+        updated = client.put(
+            "/api/v1/system/domain-blacklist",
+            json={"domains": ["Bad.Example.com", "phish@evil.test"]},
+            headers=headers,
+        )
+        assert updated.status_code == 200
+        assert updated.json()["domains"] == ["bad.example.com", "evil.test"]
+
+        fetched = client.get("/api/v1/system/domain-blacklist", headers=headers)
+        assert fetched.status_code == 200
+        assert fetched.json()["domains"] == ["bad.example.com", "evil.test"]
+
+
+def test_sender_blacklist_roundtrip(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        headers = _auth_headers(client)
+
+        updated = client.put(
+            "/api/v1/system/sender-blacklist",
+            json={"domains": ["Bad.Actor@example.com", "bad.actor@example.com", "not-an-email"]},
+            headers=headers,
+        )
+        assert updated.status_code == 200
+        assert updated.json()["domains"] == ["bad.actor@example.com"]
+
+
+def test_policy_summary_and_events_include_policy_updates(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    from backend.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        headers = _auth_headers(client)
+
+        whitelist_update = client.put(
+            "/api/v1/system/sender-whitelist",
+            json={"domains": ["alerts@example.com"]},
+            headers=headers,
+        )
+        assert whitelist_update.status_code == 200
+
+        domain_update = client.put(
+            "/api/v1/system/domain-blacklist",
+            json={"domains": ["evil.test"]},
+            headers=headers,
+        )
+        assert domain_update.status_code == 200
+
+        summary = client.get("/api/v1/system/policy-summary", headers=headers)
+        assert summary.status_code == 200
+        payload = summary.json()
+        assert payload["sender_whitelist"][0]["value"] == "alerts@example.com"
+        assert payload["sender_whitelist"][0]["hit_count"] == 0
+        assert payload["sender_whitelist"][0]["last_change_action"] == "added"
+        assert payload["domain_blacklist"][0]["value"] == "evil.test"
+        assert payload["domain_blacklist"][0]["last_change_action"] == "added"
+
+        events = client.get("/api/v1/system/policy-events?limit=10", headers=headers)
+        assert events.status_code == 200
+        items = events.json()["items"]
+        assert any(
+            item["event_type"] == "policy_update"
+            and item["policy_key"] == "sender_whitelist"
+            and item["policy_value"] == "alerts@example.com"
+            and item["actor"] == "admin"
+            for item in items
+        )
+        assert any(
+            item["event_type"] == "policy_update"
+            and item["policy_key"] == "domain_blacklist"
+            and item["policy_value"] == "evil.test"
+            for item in items
+        )

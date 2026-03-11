@@ -9,7 +9,7 @@ from backend.api.deps import get_container, get_current_user, require_auth
 from backend.container import AppContainer
 from backend.infra.errors import raise_api_error
 from backend.models.tables import AnalysisFeedbackEvent, EmailAnalysis
-from backend.schemas.analysis import AnalysisDeleteResponse, AnalysisListResponse, AnalysisResponse
+from backend.schemas.analysis import AnalysisDeleteResponse, AnalysisListResponse, AnalysisResponse, EmailPayload, ReportPayload, ToolOutputsPayload
 from backend.schemas.feedback import FeedbackEventResponse, FeedbackResponse, FeedbackUpsertRequest
 from backend.schemas.jobs import JobCreateResponse
 
@@ -50,19 +50,29 @@ def _cleanup_report_file(raw_path: str | None, report_root: Path):
 
 
 def _to_analysis_response(obj) -> AnalysisResponse:
+    parsed_email = obj.parsed_email or {}
+    url_extraction = obj.url_extraction or {}
+    report_markdown = obj.report_markdown or ""
     return AnalysisResponse(
         id=obj.id,
-        message_id=obj.message_id,
         fingerprint=obj.fingerprint,
-        sender=obj.sender,
-        recipient=obj.recipient,
-        subject=obj.subject,
-        url_analysis=obj.url_analysis,
-        body_analysis=obj.body_analysis,
-        attachment_analysis=obj.attachment_analysis,
-        final_decision=obj.final_decision,
-        llm_report=obj.llm_report,
-        report_path=obj.report_path,
+        email=EmailPayload(
+            message_id=parsed_email.get("message_id") or obj.message_id,
+            sender=parsed_email.get("sender") or obj.sender,
+            recipient=parsed_email.get("recipient") or obj.recipient,
+            subject=parsed_email.get("subject") or obj.subject,
+            urls=url_extraction.get("normalized_urls", []) or [],
+            attachments=parsed_email.get("attachments", []) or [],
+        ),
+        tool_outputs=ToolOutputsPayload(
+            url_extraction=obj.url_extraction,
+            url_reputation=obj.url_reputation,
+            url_analysis=obj.url_analysis,
+            content_review=obj.content_review,
+            attachment_analysis=obj.attachment_analysis,
+        ),
+        decision=obj.decision,
+        report=ReportPayload(markdown=report_markdown, path=obj.report_path),
         execution_trace=obj.execution_trace,
         review_label=obj.review_label,
         review_note=obj.review_note,

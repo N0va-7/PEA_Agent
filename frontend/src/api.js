@@ -1,22 +1,21 @@
 import { accessToken, apiBaseUrl, normalizeBaseUrl } from './session'
 
+export const SANDBOX_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_SANDBOX_BASE_URL || 'http://127.0.0.1:8000')
+
 const ERROR_MAP = {
   invalid_credentials: '用户名或密码错误',
   too_many_login_attempts: '登录失败次数过多，请稍后再试',
   invalid_token: '登录状态无效，请重新登录',
   analysis_not_found: '分析记录不存在',
+  url_analysis_not_found: 'URL 分析记录不存在',
   report_not_found: '报告文件不存在',
   invalid_file_type: '仅支持上传 .eml 文件',
   empty_file: '上传文件为空',
   file_too_large: '上传文件过大',
   invalid_datetime: '时间格式错误',
+  invalid_url: '请输入有效的 http/https URL',
+  too_many_urls: '单次提交的 URL 数量过多',
   forbidden: '当前账号无权限执行该操作',
-  precheck_failed: '样本门槛未达标，无法运行调参',
-  confirm_required: '请先预检查并确认后再执行调参',
-  tuning_already_running: '已有调参任务在运行，请稍后重试',
-  tuning_run_not_found: '调参任务不存在',
-  tuning_run_not_succeeded: '仅可启用成功完成的调参任务',
-  invalid_threshold_range: '阈值范围不合法',
 }
 
 export function mapErrorMessage(code, fallback) {
@@ -80,4 +79,22 @@ export async function loginApi(username, password) {
 export function isAuthError(error) {
   const code = String(error?.code || '')
   return code === 'invalid_token' || code === 'http_401' || Number(error?.status) === 401
+}
+
+export async function sandboxFetch(path, options = {}) {
+  if (!SANDBOX_BASE_URL) {
+    const err = new Error('静态沙箱地址未配置')
+    err.code = 'missing_sandbox_base'
+    throw err
+  }
+
+  const response = await fetch(`${SANDBOX_BASE_URL}${path}`, {
+    ...options,
+    headers: { ...(options.headers || {}) },
+  })
+
+  if (!response.ok) {
+    await parseError(response)
+  }
+  return response
 }

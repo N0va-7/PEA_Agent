@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Index, String, Text
+from sqlalchemy import JSON as SAJSON
+from sqlalchemy import DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,12 +19,15 @@ class EmailAnalysis(Base):
     recipient: Mapped[str | None] = mapped_column(String(512), nullable=True)
     subject: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    parsed_email: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    url_extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    url_reputation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     url_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    body_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    content_review: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     attachment_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    final_decision: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    decision: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    llm_report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_path: Mapped[str] = mapped_column(Text, nullable=False)
     execution_trace: Mapped[list | None] = mapped_column(JSON, nullable=True)
     review_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -85,47 +89,6 @@ Index("idx_feedback_events_analysis_id", AnalysisFeedbackEvent.analysis_id)
 Index("idx_feedback_events_changed_at", AnalysisFeedbackEvent.changed_at)
 
 
-class FusionTuningRun(Base):
-    __tablename__ = "fusion_tuning_runs"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    triggered_by: Mapped[str] = mapped_column(String(128), nullable=False)
-    triggered_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    is_active: Mapped[bool] = mapped_column(default=False, nullable=False)
-
-    reviewed_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reviewed_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    fpr_target: Mapped[float] = mapped_column(nullable=False, default=0.03)
-    w_step: Mapped[float] = mapped_column(nullable=False, default=0.05)
-    th_min: Mapped[float] = mapped_column(nullable=False, default=0.50)
-    th_max: Mapped[float] = mapped_column(nullable=False, default=0.95)
-    th_step: Mapped[float] = mapped_column(nullable=False, default=0.01)
-
-    row_count: Mapped[int] = mapped_column(nullable=False, default=0)
-    positive_count: Mapped[int] = mapped_column(nullable=False, default=0)
-    negative_count: Mapped[int] = mapped_column(nullable=False, default=0)
-    skipped_count: Mapped[int] = mapped_column(nullable=False, default=0)
-    recent_feedback_count: Mapped[int] = mapped_column(nullable=False, default=0)
-    precheck: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-
-    dataset_csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    result_json_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    best_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    top_k: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    selection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-Index("idx_fusion_tuning_runs_status", FusionTuningRun.status)
-Index("idx_fusion_tuning_runs_triggered_at", FusionTuningRun.triggered_at)
-Index("idx_fusion_tuning_runs_is_active", FusionTuningRun.is_active)
-
-
 class SystemConfig(Base):
     __tablename__ = "system_config"
 
@@ -137,3 +100,65 @@ class SystemConfig(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class PolicyEvent(Base):
+    __tablename__ = "policy_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    policy_value: Mapped[str] = mapped_column(String(512), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    analysis_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+Index("idx_policy_events_type", PolicyEvent.event_type)
+Index("idx_policy_events_key_value", PolicyEvent.policy_key, PolicyEvent.policy_value)
+Index("idx_policy_events_created_at", PolicyEvent.created_at)
+
+
+class VTUrlCache(Base):
+    __tablename__ = "vt_url_cache"
+
+    url_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    normalized_url: Mapped[str] = mapped_column(Text, nullable=False)
+    vt_url_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    http_status: Mapped[int] = mapped_column(nullable=False, default=200)
+
+
+Index("idx_vt_url_cache_expires_at", VTUrlCache.expires_at)
+
+
+class UrlAnalysis(Base):
+    __tablename__ = "url_analyses"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    requested_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_url: Mapped[str] = mapped_column(Text, nullable=False)
+    url_reputation: Mapped[dict | None] = mapped_column(SAJSON, nullable=True)
+    url_analysis: Mapped[dict | None] = mapped_column(SAJSON, nullable=True)
+    decision: Mapped[dict | None] = mapped_column(SAJSON, nullable=True)
+    execution_trace: Mapped[list | None] = mapped_column(SAJSON, nullable=True)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+Index("idx_url_analyses_updated_at", UrlAnalysis.updated_at)

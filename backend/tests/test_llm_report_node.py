@@ -1,4 +1,4 @@
-from backend.workflow.nodes.llm_report import make_llm_report_node
+from backend.agent_tools.report_renderer import make_report_renderer_tool
 
 
 class _DummyResponse:
@@ -13,7 +13,6 @@ class _GoodLLM:
 <json>
 {
   "summary": "该邮件存在明显钓鱼诱导特征。",
-  "risk_level": "高",
   "key_indicators": ["伪造登录链接", "正文催促立即操作"],
   "recommendations": ["立即隔离", "通知SOC"]
 }
@@ -27,62 +26,39 @@ class _FailLLM:
         raise RuntimeError("llm unavailable")
 
 
-class _EnglishLLM:
-    def invoke(self, _messages):
-        return _DummyResponse(
-            """
-{
-  "summary": "Email impersonates a bank and asks for urgent action.",
-  "risk_level": "high",
-  "key_indicators": ["Suspicious sender", "High phishing URL probability"],
-  "recommendations": ["Block sender", "Notify SOC"]
-}
-"""
-        )
-
-
-def _base_state():
+def _base_context():
     return {
-        "subject": "账户异常提醒",
-        "sender": "service@example.com",
-        "recipient": "user@example.com",
+        "parsed_email": {
+            "subject": "账户异常提醒",
+            "sender": "service@example.com",
+            "recipient": "user@example.com",
+        },
+        "url_reputation": {"max_risk_score": 1.0, "high_risk_urls": ["https://evil.test/login"]},
         "url_analysis": {"max_possibility": 0.91},
-        "body_analysis": {"phishing_probability": 0.88},
-        "attachment_analysis": {"threat_level": "unknown"},
-        "final_decision": {"is_malicious": True, "score": 0.9, "reason": "综合评分较高"},
-        "execution_trace": [],
+        "content_review": {"verdict": "malicious", "score": 0.9},
+        "attachment_analysis": {"aggregate_verdict": "unknown"},
+        "decision": {"verdict": "malicious", "score": 1.0, "primary_risk_source": "vt_url_reputation"},
     }
 
 
-def test_llm_report_node_uses_fixed_markdown_template():
-    node = make_llm_report_node(_GoodLLM())
-    out = node(_base_state())
-    report = out["llm_report"]
+def test_report_renderer_uses_fixed_markdown_template():
+    tool = make_report_renderer_tool(_GoodLLM())
+    out = tool.run(_base_context())
+    report = out["report"]["markdown"]
 
     assert "# 邮件威胁分析报告" in report
     assert "## 1. 执行摘要" in report
-    assert "## 8. 模型输出快照" in report
+    assert "## 6. 模型输出快照" in report
     assert "伪造登录链接" in report
     assert "1. 立即隔离" in report
-    assert "execution_trace" not in report
 
 
-def test_llm_report_node_fallbacks_when_llm_fails():
-    node = make_llm_report_node(_FailLLM())
-    out = node(_base_state())
-    report = out["llm_report"]
+def test_report_renderer_falls_back_when_llm_fails():
+    tool = make_report_renderer_tool(_FailLLM())
+    out = tool.run(_base_context())
+    report = out["report"]["markdown"]
 
     assert "# 邮件威胁分析报告" in report
-    assert "## 1. 执行摘要" in report
-    assert "综合评分较高" in report
-    assert out["execution_trace"][-1] == "llm_report"
-
-
-def test_llm_report_node_rejects_english_sections_and_falls_back_to_chinese():
-    node = make_llm_report_node(_EnglishLLM())
-    out = node(_base_state())
-    report = out["llm_report"]
-
-    assert "Email impersonates a bank" not in report
-    assert "Suspicious sender" not in report
-    assert "系统综合正文、URL与附件信号后" in report
+    assert "VT 高危 URL：https://evil.test/login" in report
+    assert "vt_url_reputation" in report
+    assert "保留样本证据链并跟踪相似主题邮件" not in report

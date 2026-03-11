@@ -61,15 +61,28 @@ async function logout() {
             <span class="menu-icon">UP</span>
             <span class="menu-label" v-show="!isCollapsed">上传分析</span>
           </RouterLink>
+          <RouterLink to="/app/url-risk" class="menu-item" :title="isCollapsed ? 'URL 风险' : ''">
+            <span class="menu-icon">UR</span>
+            <span class="menu-label" v-show="!isCollapsed">URL 风险</span>
+          </RouterLink>
           <RouterLink to="/app/history" class="menu-item" :title="isCollapsed ? '历史记录' : ''">
             <span class="menu-icon">HS</span>
             <span class="menu-label" v-show="!isCollapsed">历史记录</span>
           </RouterLink>
-          <RouterLink to="/app/tuning" class="menu-item" :title="isCollapsed ? '调参管理' : ''">
-            <span class="menu-icon">TN</span>
-            <span class="menu-label" v-show="!isCollapsed">调参管理</span>
+        </section>
+
+        <section class="menu-group">
+          <p class="menu-group-title" v-show="!isCollapsed">静态沙箱</p>
+          <RouterLink to="/app/static-sandbox" class="menu-item" :title="isCollapsed ? '上传扫描' : ''">
+            <span class="menu-icon">SS</span>
+            <span class="menu-label" v-show="!isCollapsed">上传扫描</span>
+          </RouterLink>
+          <RouterLink to="/app/static-rules" class="menu-item" :title="isCollapsed ? '规则管理' : ''">
+            <span class="menu-icon">SR</span>
+            <span class="menu-label" v-show="!isCollapsed">规则管理</span>
           </RouterLink>
         </section>
+
       </nav>
 
       <div class="sidebar-footer">

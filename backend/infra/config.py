@@ -63,7 +63,19 @@ class Settings:
     llm_base_url: str
     llm_model_id: str
 
-    threatbook_api_key: str
+    vt_api_key: str
+    vt_base_url: str
+    vt_enabled: bool
+    vt_public_mode: bool
+    vt_cache_ttl_hours: int
+    vt_min_interval_seconds: int
+    vt_daily_budget: int
+    vt_timeout_seconds: int
+
+    attachment_sandbox_base_url: str
+    attachment_sandbox_source_id: str
+    attachment_sandbox_timeout_seconds: int
+    attachment_sandbox_poll_interval_seconds: int
 
     jwt_secret_key: str
     jwt_algorithm: str
@@ -73,9 +85,6 @@ class Settings:
 
     auth_username: str
     auth_password_hash: str
-    tuning_min_total_samples: int
-    tuning_min_class_samples: int
-    tuning_recent_days: int
     job_queue_backend: str
     redis_url: str
     redis_queue_name: str
@@ -102,19 +111,27 @@ def load_settings() -> Settings:
         llm_api_key=os.getenv("LLM_API_KEY", ""),
         llm_base_url=_normalize_llm_base_url(os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
         llm_model_id=os.getenv("LLM_MODEL_ID", "gpt-4o-mini"),
-        threatbook_api_key=os.getenv("THREATBOOK_API_KEY", ""),
+        vt_api_key=os.getenv("VT_API_KEY", ""),
+        vt_base_url=(os.getenv("VT_BASE_URL", "https://www.virustotal.com/api/v3").strip() or "https://www.virustotal.com/api/v3"),
+        vt_enabled=_bool_env("VT_ENABLED", True),
+        vt_public_mode=_bool_env("VT_PUBLIC_MODE", True),
+        vt_cache_ttl_hours=max(1, _int_env("VT_CACHE_TTL_HOURS", 24)),
+        vt_min_interval_seconds=max(1, _int_env("VT_MIN_INTERVAL_SECONDS", 15)),
+        vt_daily_budget=max(1, _int_env("VT_DAILY_BUDGET", 500)),
+        vt_timeout_seconds=max(1, _int_env("VT_TIMEOUT_SECONDS", 20)),
+        attachment_sandbox_base_url=(os.getenv("ATTACHMENT_SANDBOX_BASE_URL", "").strip().rstrip("/")),
+        attachment_sandbox_source_id=(os.getenv("ATTACHMENT_SANDBOX_SOURCE_ID", "pea-agent").strip() or "pea-agent"),
+        attachment_sandbox_timeout_seconds=max(5, _int_env("ATTACHMENT_SANDBOX_TIMEOUT_SECONDS", 45)),
+        attachment_sandbox_poll_interval_seconds=max(1, _int_env("ATTACHMENT_SANDBOX_POLL_INTERVAL_SECONDS", 2)),
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me"),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         jwt_expire_hours=_int_env("JWT_EXPIRE_HOURS", 8),
         cors_allow_origins=_parse_csv_list(
             os.getenv("CORS_ALLOW_ORIGINS"),
-            ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8501"],
+            ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173", "http://127.0.0.1:4173", "http://localhost:8501"],
         ),
         auth_username=os.getenv("AUTH_USERNAME", "admin"),
         auth_password_hash=os.getenv("AUTH_PASSWORD_HASH", ""),
-        tuning_min_total_samples=_int_env("TUNING_MIN_TOTAL_SAMPLES", 500),
-        tuning_min_class_samples=_int_env("TUNING_MIN_CLASS_SAMPLES", 100),
-        tuning_recent_days=_int_env("TUNING_RECENT_DAYS", 7),
         job_queue_backend=(os.getenv("JOB_QUEUE_BACKEND", "memory").strip().lower() or "memory"),
         redis_url=(os.getenv("REDIS_URL", "").strip()),
         redis_queue_name=(os.getenv("REDIS_QUEUE_NAME", "pea:jobs").strip() or "pea:jobs"),
