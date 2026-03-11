@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const emlPath = '/tmp/pea-upload-smoke.eml'
-const sandboxSamplePath = '/Users/qwx/dev/code/PEA_Agent/Eml_Agent/rules/yara/00_generic.yar'
+const sandboxSamplePath = '/Users/qwx/dev/code/PEA_Agent/attachment_sandbox_service/rules/yara/00_generic.yar'
 
 async function login(page) {
   await page.goto('/login')

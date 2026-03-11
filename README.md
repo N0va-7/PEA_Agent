@@ -21,7 +21,7 @@ PEA Agent 是一个邮件与链接安全分析控制台。
 - VirusTotal URL 信誉查询
 - URL 模型风险评分
 - 正文内容复核
-- 附件静态沙箱接入 `Eml_Agent`
+- 附件静态沙箱接入 `attachment_sandbox_service`
 - 最终决策与 Markdown 报告输出
 - 历史记录、人工反馈、规则管理
 - 独立 URL 检查台
@@ -33,7 +33,7 @@ PEA Agent 是一个邮件与链接安全分析控制台。
 - 邮件分析：按 `message_id / fingerprint` 命中历史记录
 - URL 检查：按归一化 URL 命中 `url_analyses`
 - VT URL 查询：按归一化 URL 命中 `vt_url_cache`
-- 附件静态沙箱：按样本 `SHA256` 命中 `Eml_Agent` 缓存
+- 附件静态沙箱：按样本 `SHA256` 命中 `attachment_sandbox_service` 缓存
 
 ## 目录
 
@@ -52,7 +52,7 @@ frontend/
   src/views/            控制台页面
   src/api.js            前端 API 客户端
 
-Eml_Agent/
+attachment_sandbox_service/
   独立静态附件沙箱
 ```
 
@@ -63,7 +63,7 @@ Eml_Agent/
 - Database: MySQL
 - Queue/Cache: Redis
 - External intel: VirusTotal URL API
-- Attachment sandbox: 独立 `Eml_Agent`
+- Attachment sandbox: 独立 `attachment_sandbox_service`
 
 ## 快速启动
 
@@ -96,7 +96,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ### 4. 静态沙箱
 
-按 `Eml_Agent/README.md` 启动独立服务，默认使用：
+按 `attachment_sandbox_service/README.md` 启动独立服务，默认使用：
 
 - `http://127.0.0.1:8000`
 
