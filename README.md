@@ -1,96 +1,60 @@
 # PEA Agent
 
-PEA Agent 是一个邮件与链接安全分析控制台。
+PEA Agent 是一个面向邮件、URL 和附件的安全分析控制台。
 
-当前仓库已经重构成两层：
+当前系统由 3 部分组成：
 
-1. `backend/agent_tools`
-   统一工具层，负责邮件解析、URL 提取、VT URL 信誉、URL 模型分析、正文复核、附件沙箱、决策和报告生成。
-2. `backend/workflow`
-   Agent 编排层，负责串起工具、命中缓存、持久化结果。
+1. 主后端：邮件分析、URL 风险分析、历史与报告
+2. 前端控制台：邮件上传、URL 风险、历史、静态沙箱、规则管理
+3. 独立附件静态沙箱：`attachment_sandbox_service`
 
-同时提供三类前端分析入口：
+## 核心能力
 
-1. 邮件上传分析
+1. 邮件 `.eml` 上传分析
 2. 独立 URL 风险分析
-3. 独立静态沙箱扫描
+3. VirusTotal URL 信誉查询
+4. URL 传统模型评分
+5. LLM 内容复核
+6. 附件静态沙箱分析
+7. 历史记录、反馈审计、规则管理
+8. Markdown 报告输出
 
-## 当前能力
+## 结果复用
 
-- 邮件 `.eml` 上传分析
-- VirusTotal URL 信誉查询
-- URL 模型风险评分
-- 正文内容复核
-- 附件静态沙箱接入 `attachment_sandbox_service`
-- 最终决策与 Markdown 报告输出
-- 历史记录、人工反馈、规则管理
-- 独立 URL 检查台
-- URL 模型讲解 notebook 与论文图表导出
+系统会优先复用已有记录，避免重复分析：
 
-## 缓存与复用
+1. 邮件分析：按 `fingerprint` 命中历史邮件结果
+2. URL 分析：按归一化 URL 命中 `url_analyses`
+3. VT 查询：按归一化 URL 命中 `vt_url_cache`
+4. 附件分析：按样本 `SHA256` 命中静态沙箱缓存
 
-系统默认会复用已分析记录，避免重复消耗外部配额和重复扫描：
-
-- 邮件分析：按 `message_id / fingerprint` 命中历史记录
-- URL 检查：按归一化 URL 命中 `url_analyses`
-- VT URL 查询：按归一化 URL 命中 `vt_url_cache`
-- 附件静态沙箱：按样本 `SHA256` 命中 `attachment_sandbox_service` 缓存
-
-## 目录
+## 目录结构
 
 ```text
-backend/
-  agent_tools/          核心分析工具
-  api/                  FastAPI 路由
-  models/               SQLAlchemy 表结构
-  repositories/         持久化访问层
-  schemas/              API schema
-  services/             工作流与任务服务
-  workflow/             Agent workflow 编排
-  alembic/              数据库迁移
-
-frontend/
-  src/views/            控制台页面
-  src/api.js            前端 API 客户端
-
-attachment_sandbox_service/
-  独立静态附件沙箱
-
-output/jupyter-notebook/
-  URL 模型讲解 notebook 与导出图表
+backend/                     主后端
+frontend/                    Vue 3 控制台
+attachment_sandbox_service/  独立附件静态沙箱
+docs/                        项目文档与毕设材料说明
+output/jupyter-notebook/     URL 模型 notebook 与图表
 ```
-
-## 技术栈
-
-- Backend: FastAPI, SQLAlchemy, Alembic
-- Frontend: Vue 3, Vite
-- Database: MySQL
-- Queue/Cache: Redis
-- External intel: VirusTotal URL API
-- Attachment sandbox: 独立 `attachment_sandbox_service`
 
 ## 快速启动
 
-### 1. 基础设施
+### 1. 启动 MySQL 和 Redis
 
 ```bash
 docker compose up -d mysql redis
 ```
 
-默认地址：
-
-- MySQL: `127.0.0.1:3306`
-- Redis: `127.0.0.1:6379`
-
-### 2. 后端
+### 2. 启动主后端
 
 ```bash
 cp backend/.env.example backend/.env
 ./.py311/bin/alembic -c backend/alembic.ini upgrade head
-./.py311/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8010 --reload
+./.py311/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8010
 ```
 
-### 3. 前端
+### 3. 启动前端
 
 ```bash
 cd frontend
@@ -98,99 +62,51 @@ npm install
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-### 4. 静态沙箱
+### 4. 启动附件静态沙箱
 
-按 `attachment_sandbox_service/README.md` 启动独立服务，默认使用：
-
-- `http://127.0.0.1:8000`
-
-## 关键环境变量
-
-`backend/.env` 至少需要这些配置：
-
-```env
-DATABASE_URL=mysql+pymysql://root:root@127.0.0.1:3306/pea_agent?charset=utf8mb4
-REDIS_URL=redis://127.0.0.1:6379/0
-JOB_QUEUE_BACKEND=redis
-
-JWT_SECRET_KEY=replace-me
-AUTH_USERNAME=admin
-AUTH_PASSWORD_HASH=...
-
-VT_ENABLED=true
-VT_API_KEY=...
-VT_BASE_URL=https://www.virustotal.com/api/v3
-VT_PUBLIC_MODE=true
-VT_CACHE_TTL_HOURS=24
-VT_MIN_INTERVAL_SECONDS=15
-VT_DAILY_BUDGET=500
-
-ATTACHMENT_SANDBOX_BASE_URL=http://127.0.0.1:8000
+```bash
+cd attachment_sandbox_service
+docker compose up -d postgres redis api worker
 ```
 
 ## 主要页面
 
-- `/app/upload` 邮件上传分析
-- `/app/url-risk` URL 风险分析
-- `/app/history` 邮件分析历史
-- `/app/static-sandbox` 静态沙箱上传扫描
-- `/app/static-rules` 静态沙箱规则管理
+1. `/app/upload` 邮件上传分析
+2. `/app/url-risk` URL 风险分析
+3. `/app/history` 邮件分析历史
+4. `/app/static-sandbox` 静态沙箱上传扫描
+5. `/app/static-rules` 静态沙箱规则管理
 
-## 主要接口
+## 文档入口
 
-- `POST /api/v1/analyses` 创建邮件分析任务
-- `GET /api/v1/jobs/{job_id}` 查看任务进度
-- `GET /api/v1/analyses/{analysis_id}` 查看邮件分析详情
-- `POST /api/v1/url-checks` 创建独立 URL 风险分析
-- `GET /api/v1/url-checks` 查看 URL 历史
-- `GET /api/v1/url-checks/{id}` 查看 URL 详情
+如果你要用于毕设或答辩，直接从这里开始：
 
-## 测试
+1. [docs/README.md](./docs/README.md)
+2. [docs/08_thesis_submission_package.md](./docs/08_thesis_submission_package.md)
 
-后端：
+## URL 模型论文材料
 
-```bash
-./.py311/bin/pytest backend/tests -q
-```
+配套 notebook：
 
-前端：
+1. `output/jupyter-notebook/url-model-training-walkthrough.ipynb`
 
-```bash
-cd frontend
-npm run build
-```
+已导出图表：
 
-## URL 模型讲解材料
-
-仓库内提供了一份可直接打开的教学 notebook：
-
-- `output/jupyter-notebook/url-model-training-walkthrough.ipynb`
-
-用途：
-
-- 解释当前线上 URL 模型结构
-- 展示训练集标签分布
-- 对比 `LogisticRegression / SGDClassifier / MultinomialNB`
-- 导出适合论文或汇报直接复用的图表
-
-当前会生成这些图：
-
-- `output/jupyter-notebook/url-model-figures/dataset-label-distribution.png`
-- `output/jupyter-notebook/url-model-figures/model-metric-comparison.png`
-- `output/jupyter-notebook/url-model-figures/roc-curves.png`
-- `output/jupyter-notebook/url-model-figures/best-model-confusion-matrix.png`
-- `output/jupyter-notebook/url-model-figures/feature-weight-bar-charts.png`
-- `output/jupyter-notebook/url-model-figures/ngram-wordclouds.png`
+1. `dataset-label-distribution.png`
+2. `model-metric-comparison.png`
+3. `roc-curves.png`
+4. `best-model-confusion-matrix.png`
+5. `feature-weight-bar-charts.png`
+6. `ngram-wordclouds.png`
 
 说明：
 
-- notebook 已预执行，打开即可看到结果
-- 每个 code cell 前都带有讲解说明
-- 每张关键图后都带有“图表解读”
+1. notebook 已预执行
+2. 每个 code cell 前都带讲解
+3. 每张关键图后都带图表解读
 
-## 说明
+## 当前实现边界
 
-- `VT URL` 明确高危时，决策层会直接短路为恶意
-- URL 页面只开放前端入口，不在前端暴露 VT API Key
-- 当前仓库已移除正文模型、正文训练数据和 URL 重训脚本
-- 当前仓库仍保留部分旧工作流节点与历史文档，未全部清理；已经脱离主链的前端遗留页面已删除
+1. 系统只保留 URL 传统模型，不再保留正文模型
+2. 外部情报只保留 VT URL reputation
+3. VT URL 明确高危时，决策层会直接短路为恶意
